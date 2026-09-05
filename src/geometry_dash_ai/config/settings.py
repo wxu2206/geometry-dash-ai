@@ -20,6 +20,11 @@ class CaptureConfig:
     width: int = 1280
     height: int = 720
     target_fps: int = 60
+    backend: str = "mss"
+    monitor: int | None = None
+    preview_scale: float = 1.0
+    diagnostic_mode: bool = False
+    latest_frame_capacity: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +50,22 @@ class RecordingConfig:
     recent_buffer_seconds: float = 5.0
     preserve_death_context_seconds: float = 3.0
     compress_telemetry: bool = True
+    maximum_recent_frames: int = 180
+
+
+@dataclass(frozen=True, slots=True)
+class VisionConfig:
+    player_min_pixels: int = 16
+    player_max_pixels: int = 10_000
+    color_tolerance: int = 72
+    mode_history_frames: int = 5
+    tracker_max_missing_seconds: float = 0.5
+    maximum_velocity_px_s: float = 5_000.0
+    geometry_min_area_px: int = 16
+    geometry_cache_frames: int = 12
+    minimum_confidence: float = 0.35
+    cube_color: tuple[int, int, int] = (255, 60, 200)
+    ship_color: tuple[int, int, int] = (20, 230, 255)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +99,7 @@ class AppConfig:
     control: ControlConfig = ControlConfig()
     visualization: VisualizationConfig = VisualizationConfig()
     recording: RecordingConfig = RecordingConfig()
+    vision: VisionConfig = VisionConfig()
     calibration: CalibrationConfig = CalibrationConfig()
     planning: PlanningConfig = PlanningConfig()
     logging: LoggingConfig = LoggingConfig()
@@ -125,6 +147,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
         "logging",
         "planning",
         "recording",
+        "vision",
         "visualization",
     }
     unknown_sections = set(data) - known_sections
@@ -136,11 +159,31 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
     control = _section(data, "control")
     visualization = _section(data, "visualization")
     recording = _section(data, "recording")
+    vision = _section(data, "vision")
+    vision_data = dict(vision)
+    for color_name in ("cube_color", "ship_color"):
+        if color_name in vision_data and isinstance(vision_data[color_name], list):
+            vision_data[color_name] = tuple(vision_data[color_name])
     calibration = _section(data, "calibration")
     planning = _section(data, "planning")
     logging_data = _section(data, "logging")
 
-    _reject_unknown("capture", capture, {"left", "top", "width", "height", "target_fps"})
+    _reject_unknown(
+        "capture",
+        capture,
+        {
+            "left",
+            "top",
+            "width",
+            "height",
+            "target_fps",
+            "backend",
+            "monitor",
+            "preview_scale",
+            "diagnostic_mode",
+            "latest_frame_capacity",
+        },
+    )
     _reject_unknown(
         "control",
         control,
@@ -153,8 +196,29 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
         "recording",
         recording,
         {
-            "enabled", "sample_every_n_frames", "recent_buffer_seconds",
-            "preserve_death_context_seconds", "compress_telemetry",
+            "enabled",
+            "sample_every_n_frames",
+            "recent_buffer_seconds",
+            "preserve_death_context_seconds",
+            "compress_telemetry",
+            "maximum_recent_frames",
+        },
+    )
+    _reject_unknown(
+        "vision",
+        vision,
+        {
+            "player_min_pixels",
+            "player_max_pixels",
+            "color_tolerance",
+            "mode_history_frames",
+            "tracker_max_missing_seconds",
+            "maximum_velocity_px_s",
+            "geometry_min_area_px",
+            "geometry_cache_frames",
+            "minimum_confidence",
+            "cube_color",
+            "ship_color",
         },
     )
     _reject_unknown(
@@ -182,6 +246,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
             control=ControlConfig(**control),
             visualization=VisualizationConfig(**visualization),
             recording=RecordingConfig(**recording),
+            vision=VisionConfig(**vision_data),
             calibration=CalibrationConfig(**calibration),
             planning=PlanningConfig(**planning),
             logging=LoggingConfig(
@@ -202,8 +267,16 @@ def _validate(config: AppConfig) -> None:
         "capture.width": config.capture.width,
         "capture.height": config.capture.height,
         "capture.target_fps": config.capture.target_fps,
+        "capture.latest_frame_capacity": config.capture.latest_frame_capacity,
         "recording.sample_every_n_frames": config.recording.sample_every_n_frames,
+        "recording.maximum_recent_frames": config.recording.maximum_recent_frames,
         "calibration.minimum_observations": config.calibration.minimum_observations,
+        "vision.player_min_pixels": config.vision.player_min_pixels,
+        "vision.player_max_pixels": config.vision.player_max_pixels,
+        "vision.color_tolerance": config.vision.color_tolerance,
+        "vision.mode_history_frames": config.vision.mode_history_frames,
+        "vision.geometry_min_area_px": config.vision.geometry_min_area_px,
+        "vision.geometry_cache_frames": config.vision.geometry_cache_frames,
     }
     value: object
     for name, value in integer_values.items():
@@ -234,6 +307,10 @@ def _validate(config: AppConfig) -> None:
         "recording.preserve_death_context_seconds": config.recording.preserve_death_context_seconds,
         "calibration.minimum_observations": config.calibration.minimum_observations,
         "planning.horizon_seconds": config.planning.horizon_seconds,
+        "capture.preview_scale": config.capture.preview_scale,
+        "vision.tracker_max_missing_seconds": config.vision.tracker_max_missing_seconds,
+        "vision.maximum_velocity_px_s": config.vision.maximum_velocity_px_s,
+        "vision.minimum_confidence": config.vision.minimum_confidence,
     }
     for name, value in positive_values.items():
         if (
@@ -264,6 +341,62 @@ def _validate(config: AppConfig) -> None:
             raise ConfigError(f"{name} must be finite and in [{minimum}, {maximum}]")
     if config.calibration.learning_rate == 0:
         raise ConfigError("calibration.learning_rate must be in (0, 1]")
+    if not 1 <= config.capture.width <= 7_680 or not 1 <= config.capture.height <= 4_320:
+        raise ConfigError("capture dimensions must be within 1..7680 by 1..4320")
+    if not 1 <= config.capture.target_fps <= 240:
+        raise ConfigError("capture.target_fps must be within 1..240")
+    if not 1 <= config.capture.latest_frame_capacity <= 4:
+        raise ConfigError("capture.latest_frame_capacity must be within 1..4")
+    if not 1 <= config.recording.maximum_recent_frames <= 2_000:
+        raise ConfigError("recording.maximum_recent_frames must be within 1..2000")
+    if not 1 <= config.vision.player_min_pixels <= config.vision.player_max_pixels <= 100_000:
+        raise ConfigError("vision player pixel limits are invalid")
+    if not 1 <= config.vision.color_tolerance <= 255:
+        raise ConfigError("vision.color_tolerance must be within 1..255")
+    if not 1 <= config.vision.mode_history_frames <= 30:
+        raise ConfigError("vision.mode_history_frames must be within 1..30")
+    if not 1 <= config.vision.geometry_min_area_px <= 10_000:
+        raise ConfigError("vision.geometry_min_area_px must be within 1..10000")
+    if not 1 <= config.vision.geometry_cache_frames <= 120:
+        raise ConfigError("vision.geometry_cache_frames must be within 1..120")
+    if not 0.0 <= config.vision.minimum_confidence <= 1.0:
+        raise ConfigError("vision.minimum_confidence must be within [0, 1]")
+    if abs(config.capture.left) > 100_000 or abs(config.capture.top) > 100_000:
+        raise ConfigError("capture origin exceeds supported bounds")
+    if not 0.1 <= config.capture.preview_scale <= 4.0:
+        raise ConfigError("capture.preview_scale must be within [0.1, 4]")
+    if config.vision.tracker_max_missing_seconds > 10.0:
+        raise ConfigError("vision.tracker_max_missing_seconds must be at most 10")
+    if config.vision.maximum_velocity_px_s > 100_000.0:
+        raise ConfigError("vision.maximum_velocity_px_s must be at most 100000")
+    for name, color in (
+        ("cube_color", config.vision.cube_color),
+        ("ship_color", config.vision.ship_color),
+    ):
+        if (
+            not isinstance(color, tuple)
+            or len(color) != 3
+            or any(
+                isinstance(channel, bool)
+                or not isinstance(channel, int)
+                or not 0 <= channel <= 255
+                for channel in color
+            )
+        ):
+            raise ConfigError(f"vision.{name} must be three integer RGB channels")
+    if not isinstance(config.capture.backend, str) or config.capture.backend not in {
+        "mss",
+        "synthetic",
+    }:
+        raise ConfigError("capture.backend must be 'mss' or 'synthetic'")
+    if config.capture.monitor is not None and (
+        isinstance(config.capture.monitor, bool)
+        or not isinstance(config.capture.monitor, int)
+        or not 0 <= config.capture.monitor <= 64
+    ):
+        raise ConfigError("capture.monitor must be null or an integer within 0..64")
+    if not isinstance(config.capture.diagnostic_mode, bool):
+        raise ConfigError("capture.diagnostic_mode must be a boolean")
     bounded_integers = {
         "planning.maximum_jump_delay_frames": (
             config.planning.maximum_jump_delay_frames,

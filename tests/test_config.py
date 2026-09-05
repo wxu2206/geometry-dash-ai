@@ -16,6 +16,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.control.emergency_stop_key, "f12")
         self.assertEqual(config.planning.maximum_candidates, 16)
         self.assertEqual(config.planning.maximum_jump_delay_frames, 24)
+        self.assertEqual(config.vision.cube_color, (255, 60, 200))
 
     def test_local_configuration_overrides_one_value(self) -> None:
         with TemporaryDirectory() as directory:
@@ -46,6 +47,16 @@ class ConfigTests(unittest.TestCase):
     def test_extreme_numeric_config_is_rejected_without_overflow(self) -> None:
         with self.assertRaisesRegex(ConfigError, "finite"):
             config_from_dict({"control": {"action_interval_ms": 10**10_000}})
+
+    def test_capture_and_vision_bounds_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "target_fps"):
+            config_from_dict({"capture": {"target_fps": 241}})
+        with self.assertRaisesRegex(ConfigError, "finite"):
+            config_from_dict({"vision": {"maximum_velocity_px_s": math.inf}})
+        with self.assertRaisesRegex(ConfigError, "preview_scale"):
+            config_from_dict({"capture": {"preview_scale": 0.01}})
+        with self.assertRaisesRegex(ConfigError, "RGB"):
+            config_from_dict({"vision": {"cube_color": [True, 60, 200]}})
 
 
 if __name__ == "__main__":

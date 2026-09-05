@@ -16,7 +16,10 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Typing :: Typed",
 ]
-dependencies = []
+dependencies = [
+  "numpy>=2,<2.3; python_version < '3.14'",
+  "numpy>=2,<3; python_version >= '3.14'",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -24,9 +27,12 @@ dev = [
   "pytest>=8.3,<10",
   "ruff>=0.11,<1",
 ]
+live = ["mss>=10,<11"]
 
 [project.scripts]
 geometry-dash-sim = "geometry_dash_ai.simulation.__main__:main"
+geometry-dash-observe = "geometry_dash_ai.vision.__main__:main"
+geometry-dash-calibrate = "geometry_dash_ai.calibrate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -47,4 +53,9 @@ python_version = "3.11"
 strict = true
 packages = ["geometry_dash_ai"]
 mypy_path = "src"
+no_site_packages = true
 
+[[tool.mypy.overrides]]
+module = ["mss", "numpy", "numpy.*"]
+follow_imports = "skip"
+ignore_missing_imports = true

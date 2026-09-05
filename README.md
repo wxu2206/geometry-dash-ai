@@ -16,10 +16,11 @@ The V1 target is **Stereo Madness**, including its normal transitions between
 
 ## Project Status
 
-Early development. Phases 1 and 2 provide the repository foundation, typed
+Early development. Phases 1–3 provide the repository foundation, typed
 configuration, structured telemetry, deterministic synthetic simulator, swept
-cube collision physics, and a survival-first cube trajectory planner. Live
-perception and control are not yet ready for unattended gameplay.
+cube collision physics, a survival-first cube trajectory planner, and an
+observe-only capture/perception/debug pipeline. Live control is not implemented
+and cannot be activated in Phase 3.
 
 ## V1 Goals
 
@@ -66,9 +67,9 @@ later be replaced by learned ones. See [docs/architecture.md](docs/architecture.
 ```text
 config/                     User-editable TOML configuration
 src/geometry_dash_ai/
-  capture/                  Live frame acquisition (planned)
-  vision/                   Player and geometry perception (planned)
-  tracking/                 Temporal state estimation (planned)
+  capture/                  Region-bounded, latest-frame acquisition
+  vision/                   Classical player/geometry perception and preview
+  tracking/                 Timestamped player, scroll, and geometry fusion
   physics/                  Calibrated dynamics and trajectories
   planning/                 Cube and ship action selection
   control/                  Input backends and safety controls
@@ -123,8 +124,14 @@ geometry-dash-sim --steps 240
 PYTHONPATH=src python -m geometry_dash_ai.simulation --steps 240
 ```
 
-The demo runs known cube physics against a small synthetic layout and prints
-periodic state snapshots plus the terminal outcome.
+For the headless visual-perception smoke test:
+
+```bash
+python scripts/perception_demo.py --frames 120
+```
+
+The demo runs the observation pipeline over a small deterministic raster scene
+and reports detected mode, geometry count, confidence, and processing latency.
 
 ## Running Tests
 
@@ -139,10 +146,16 @@ Dash or performs live input automation.
 
 ## Live Game Calibration
 
-Live calibration is planned for Phase 4. It will use a setup mode to select the
-capture rectangle, verify player detection, and estimate cube and ship dynamics
-from observed motion. Calibration records belong in `data/calibration/` and must
-not be committed. See [docs/calibration.md](docs/calibration.md).
+Phase 3 provides manual capture-region validation and a local debug preview:
+
+```bash
+geometry-dash-calibrate --left 100 --top 120 --width 1280 --height 720
+geometry-dash-observe --frames 120 --preview
+```
+
+On Bazzite/KDE Wayland, direct `mss` capture can be denied by compositor policy.
+The application reports that condition safely; it does not change desktop
+security. See [docs/capture.md](docs/capture.md) and [docs/calibration.md](docs/calibration.md).
 
 ## Safety / Emergency Stop Controls
 
@@ -162,7 +175,9 @@ Git. See [docs/data-format.md](docs/data-format.md).
 ## Limitations
 
 - V1 is limited to Stereo Madness and cube/ship gameplay.
-- The current phase is a synthetic foundation, not a complete live agent.
+- Phase 3 is observe-only: it cannot send keyboard or mouse input.
+- Classical detection currently expects calibrated/high-contrast player and
+  geometry colors; effects, themes, and portals remain limited.
 - Visual effects, themes, resolution scaling, latency, and compositor behavior
   can reduce perception and control accuracy.
 - Automated input can affect the wrong application if focus or calibration is

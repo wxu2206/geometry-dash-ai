@@ -33,10 +33,14 @@ flowchart TD
 
 ## Module Boundaries
 
-- `capture`: owns frame acquisition, timestamps, measured FPS, capture-region
-  selection, and a latest-frame interface. It does not interpret pixels.
-- `vision`: turns a frame into uncertain player and geometry detections using
-  classical computer vision first. It has no authority to send input.
+- `capture`: owns region-bound frame acquisition, monotonic timestamps, measured
+  FPS, capture-region selection, and a latest-only bounded interface. Its mss
+  backend fails safely under unavailable Wayland permissions and does not
+  interpret pixels.
+- `vision`: turns a validated frame into uncertain player and geometry detections
+  using bounded classical vision, then converts screen geometry to player-relative
+  Phase 2 primitives. It can display a read-only planner preview but has no
+  authority to send input.
 - `tracking`: associates observations over time and estimates position, velocity,
   mode, confidence, and stable local geometry.
 - `physics`: owns validated geometry and parameters and simulates trajectories.
@@ -80,6 +84,10 @@ at the tracking boundary converts between them. World geometry is maintained in
 player-relative coordinates for planning, while screen/world mappings carry an
 estimated scroll offset and uncertainty.
 
+Phase 3 defines the precise transform in [perception.md](perception.md): the
+tracked player lower-left is planner `(0, 0)`, x points right, y points up, and
+one unit is one capture pixel until calibration changes the scale.
+
 ## Concurrency
 
 Capture should own a bounded latest-frame slot instead of an unbounded queue.
@@ -101,6 +109,8 @@ storage delays must never block emergency stop or input release.
   timing variants per candidate, 1,200 fixed steps per trajectory, and a five
   second horizon. Defaults are substantially smaller.
 - Candidate simulation does not mutate caller-owned state or geometry.
+- Phase 3's observation runtime imports neither `control` nor an input backend;
+  it can only capture, process, visualize, and retain bounded diagnostics.
 
 ## Phase 2 Planning Boundary
 

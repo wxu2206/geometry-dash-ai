@@ -4,6 +4,13 @@ Calibration estimates the relationship between captured pixels, observed motion,
 input latency, and collision behavior. It must learn from live observations rather
 than importing Geometry Dash constants or level data.
 
+## Phase 3 Capture Setup
+
+Phase 3 supplies `geometry-dash-calibrate` for validated manual rectangle entry
+and `geometry-dash-observe --preview` for local overlays. It is observe-only and
+does not estimate dynamics or send test inputs. Details, including KDE Wayland
+limitations, are in [capture.md](capture.md).
+
 ## Setup Calibration
 
 The planned setup UI will:
@@ -59,4 +66,3 @@ Replay observations through the estimator and report held-out position error,
 collision-time error, parameter confidence, and rejected samples. The synthetic
 environment provides known constants for calibration-math unit tests. Never tune
 parameters to progress percentage or a known Stereo Madness timestamp.
-
