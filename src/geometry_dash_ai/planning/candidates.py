@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-
+from enum import StrEnum
 
 HARD_MAX_CANDIDATES = 64
 HARD_MAX_JUMP_DELAY_FRAMES = 240
 
 
-class CubeAction(str, Enum):
+class CubeAction(StrEnum):
     NO_INPUT = "no_input"
     JUMP = "jump"
 

@@ -9,22 +9,22 @@ camera offset.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class GameMode(str, Enum):
+class GameMode(StrEnum):
     CUBE = "cube"
     SHIP = "ship"
 
 
-class Action(str, Enum):
+class Action(StrEnum):
     NONE = "none"
     PRESS = "press"
     HOLD = "hold"
     RELEASE = "release"
 
 
-class SimulationStatus(str, Enum):
+class SimulationStatus(StrEnum):
     RUNNING = "running"
     DEAD = "dead"
     COMPLETE = "complete"
@@ -157,4 +157,3 @@ class StepResult:
     @property
     def screen_x(self) -> float:
         return self.state.x - self.camera_x
-

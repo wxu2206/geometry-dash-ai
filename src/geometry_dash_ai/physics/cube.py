@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from enum import Enum
+from enum import StrEnum
 from itertools import pairwise
 from math import ceil, hypot
 
@@ -12,14 +12,12 @@ from geometry_dash_ai.physics.geometry import (
     FloorSegment,
     LocalGeometry,
     SolidRect,
-    Spike,
     aabb_distance,
     conservative_spike_clearance,
     require_finite,
     require_positive,
     swept_spike_collision_time,
 )
-
 
 MAX_SIMULATION_HORIZON_SECONDS = 5.0
 MAX_SIMULATION_STEPS = 1_200
@@ -28,7 +26,7 @@ MAX_ABS_KINEMATIC_VALUE = 100_000.0
 _EPSILON = 1e-9
 
 
-class CollisionType(str, Enum):
+class CollisionType(StrEnum):
     SPIKE = "spike"
     SOLID_SIDE = "solid_side"
     SOLID_UNDERSIDE = "solid_underside"
@@ -248,7 +246,7 @@ def simulate_cube_trajectory(
         jump_delay_steps,
     )
     if not initial_state.alive:
-        collision = CollisionEvent(
+        initial_collision = CollisionEvent(
             CollisionType.ALREADY_DEAD,
             initial_state.simulation_time,
             initial_state.x,
@@ -258,7 +256,7 @@ def simulate_cube_trajectory(
         return CubeTrajectory(
             samples=(initial_state,),
             survived_horizon=False,
-            collision=collision,
+            collision=initial_collision,
             landings=(),
             jump_requested=jump_delay_steps is not None,
             jump_applied=False,

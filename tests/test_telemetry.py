@@ -4,11 +4,34 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from geometry_dash_ai.simulation import GameMode
+from geometry_dash_ai.physics import CollisionType
+from geometry_dash_ai.planning import CubeAction
+from geometry_dash_ai.simulation import Action, GameMode, SimulationStatus
 from geometry_dash_ai.telemetry import JsonlTelemetryWriter, TelemetryEvent
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_string_enums_keep_json_and_string_compatibility(self) -> None:
+        values = {
+            "collision": CollisionType.SPIKE,
+            "cube_action": CubeAction.JUMP,
+            "game_mode": GameMode.CUBE,
+            "simulation_action": Action.PRESS,
+            "simulation_status": SimulationStatus.DEAD,
+        }
+
+        self.assertEqual(
+            json.loads(json.dumps(values)),
+            {
+                "collision": "spike",
+                "cube_action": "jump",
+                "game_mode": "cube",
+                "simulation_action": "press",
+                "simulation_status": "dead",
+            },
+        )
+        self.assertEqual(str(GameMode.CUBE), "cube")
+
     def test_telemetry_round_trip(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "run.jsonl"

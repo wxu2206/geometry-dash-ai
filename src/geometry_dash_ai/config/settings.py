@@ -205,6 +205,7 @@ def _validate(config: AppConfig) -> None:
         "recording.sample_every_n_frames": config.recording.sample_every_n_frames,
         "calibration.minimum_observations": config.calibration.minimum_observations,
     }
+    value: object
     for name, value in integer_values.items():
         if isinstance(value, bool) or not isinstance(value, int):
             raise ConfigError(f"{name} must be an integer")

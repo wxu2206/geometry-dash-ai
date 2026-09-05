@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from math import hypot, isfinite
 
-
 MAX_GEOMETRY_ITEMS = 1_024
 MAX_ABS_COORDINATE = 1_000_000_000.0
 

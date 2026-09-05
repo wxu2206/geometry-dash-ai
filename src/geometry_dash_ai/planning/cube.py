@@ -22,7 +22,6 @@ from geometry_dash_ai.planning.candidates import (
     generate_cube_candidates,
 )
 
-
 HARD_MAX_OBSTACLES_PER_PLAN = 256
 HARD_MAX_ROBUSTNESS_WINDOW_FRAMES = 3
 

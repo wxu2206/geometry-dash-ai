@@ -16,7 +16,6 @@ from geometry_dash_ai.simulation.models import (
     StepResult,
 )
 
-
 _EPSILON = 1e-6
 
 

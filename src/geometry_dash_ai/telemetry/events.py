@@ -6,12 +6,11 @@ import gzip
 import json
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
 from typing import Any, TextIO, cast
-
 
 SCHEMA_VERSION = 1
 
@@ -25,7 +24,7 @@ class TelemetryEvent:
     schema_version: int = SCHEMA_VERSION
 
     def as_dict(self) -> dict[str, Any]:
-        wall_time = self.wall_time or datetime.now(timezone.utc).isoformat()
+        wall_time = self.wall_time or datetime.now(UTC).isoformat()
         return {
             "schema_version": self.schema_version,
             "event": self.event,
