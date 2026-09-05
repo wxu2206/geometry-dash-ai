@@ -33,8 +33,12 @@ learning_rate = 0.05
 horizon_seconds = 1.25
 safety_margin_px = 6.0
 uncertainty_weight = 1.0
+maximum_jump_delay_frames = 24
+delay_increment_frames = 2
+maximum_candidates = 16
+maximum_obstacles = 128
+robustness_window_frames = 1
 
 [logging]
 level = "INFO"
 directory = "data/runs"
-

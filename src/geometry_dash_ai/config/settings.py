@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,11 @@ class PlanningConfig:
     horizon_seconds: float = 1.25
     safety_margin_px: float = 6.0
     uncertainty_weight: float = 1.0
+    maximum_jump_delay_frames: int = 24
+    delay_increment_frames: int = 2
+    maximum_candidates: int = 16
+    maximum_obstacles: int = 128
+    robustness_window_frames: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,7 +161,18 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
         "calibration", calibration, {"enabled", "minimum_observations", "learning_rate"}
     )
     _reject_unknown(
-        "planning", planning, {"horizon_seconds", "safety_margin_px", "uncertainty_weight"}
+        "planning",
+        planning,
+        {
+            "horizon_seconds",
+            "safety_margin_px",
+            "uncertainty_weight",
+            "maximum_jump_delay_frames",
+            "delay_increment_frames",
+            "maximum_candidates",
+            "maximum_obstacles",
+            "robustness_window_frames",
+        },
     )
     _reject_unknown("logging", logging_data, {"level", "directory"})
 
@@ -179,6 +196,33 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
 
 
 def _validate(config: AppConfig) -> None:
+    integer_values = {
+        "capture.left": config.capture.left,
+        "capture.top": config.capture.top,
+        "capture.width": config.capture.width,
+        "capture.height": config.capture.height,
+        "capture.target_fps": config.capture.target_fps,
+        "recording.sample_every_n_frames": config.recording.sample_every_n_frames,
+        "calibration.minimum_observations": config.calibration.minimum_observations,
+    }
+    for name, value in integer_values.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ConfigError(f"{name} must be an integer")
+        if abs(value) > 1_000_000_000:
+            raise ConfigError(f"{name} exceeds supported bounds")
+    boolean_values = {
+        "control.enabled": config.control.enabled,
+        "control.manual_override": config.control.manual_override,
+        "visualization.enabled": config.visualization.enabled,
+        "visualization.show_alternatives": config.visualization.show_alternatives,
+        "visualization.show_confidence": config.visualization.show_confidence,
+        "recording.enabled": config.recording.enabled,
+        "recording.compress_telemetry": config.recording.compress_telemetry,
+        "calibration.enabled": config.calibration.enabled,
+    }
+    for name, value in boolean_values.items():
+        if not isinstance(value, bool):
+            raise ConfigError(f"{name} must be a boolean")
     positive_values = {
         "capture.width": config.capture.width,
         "capture.height": config.capture.height,
@@ -191,14 +235,67 @@ def _validate(config: AppConfig) -> None:
         "planning.horizon_seconds": config.planning.horizon_seconds,
     }
     for name, value in positive_values.items():
-        if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-            raise ConfigError(f"{name} must be a positive number")
-    if not 0.0 < config.calibration.learning_rate <= 1.0:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or abs(value) > 1_000_000_000
+            or not isfinite(value)
+            or value <= 0
+        ):
+            raise ConfigError(f"{name} must be a positive finite number")
+    bounded_floats = {
+        "calibration.learning_rate": (config.calibration.learning_rate, 0.0, 1.0),
+        "planning.safety_margin_px": (config.planning.safety_margin_px, 0.0, 1_000_000.0),
+        "planning.uncertainty_weight": (
+            config.planning.uncertainty_weight,
+            0.0,
+            1_000_000.0,
+        ),
+    }
+    for name, (value, minimum, maximum) in bounded_floats.items():
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or abs(value) > 1_000_000_000
+            or not isfinite(value)
+            or not minimum <= value <= maximum
+        ):
+            raise ConfigError(f"{name} must be finite and in [{minimum}, {maximum}]")
+    if config.calibration.learning_rate == 0:
         raise ConfigError("calibration.learning_rate must be in (0, 1]")
-    if config.planning.safety_margin_px < 0 or config.planning.uncertainty_weight < 0:
-        raise ConfigError("planning margins and weights cannot be negative")
-    if not config.control.emergency_stop_key.strip():
-        raise ConfigError("control.emergency_stop_key cannot be empty")
+    bounded_integers = {
+        "planning.maximum_jump_delay_frames": (
+            config.planning.maximum_jump_delay_frames,
+            3,
+            240,
+        ),
+        "planning.delay_increment_frames": (config.planning.delay_increment_frames, 1, 240),
+        "planning.maximum_candidates": (config.planning.maximum_candidates, 5, 64),
+        "planning.maximum_obstacles": (config.planning.maximum_obstacles, 1, 256),
+        "planning.robustness_window_frames": (
+            config.planning.robustness_window_frames,
+            0,
+            3,
+        ),
+    }
+    for name, (value, minimum, maximum) in bounded_integers.items():
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ConfigError(f"{name} must be an integer in [{minimum}, {maximum}]")
+    control_keys = {
+        "control.emergency_stop_key": config.control.emergency_stop_key,
+        "control.pause_key": config.control.pause_key,
+    }
+    for name, value in control_keys.items():
+        if not isinstance(value, str) or not value.strip() or len(value) > 64:
+            raise ConfigError(f"{name} must be a non-empty string of at most 64 characters")
+    if not isinstance(config.logging.level, str) or config.logging.level.upper() not in {
+        "CRITICAL",
+        "DEBUG",
+        "ERROR",
+        "INFO",
+        "WARNING",
+    }:
+        raise ConfigError("logging.level is invalid")
 
 
 def load_config(default_path: Path, local_path: Path | None = None) -> AppConfig:

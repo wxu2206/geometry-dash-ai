@@ -39,9 +39,13 @@ flowchart TD
   classical computer vision first. It has no authority to send input.
 - `tracking`: associates observations over time and estimates position, velocity,
   mode, confidence, and stable local geometry.
-- `physics`: owns parameter estimates and simulates trajectories with uncertainty.
-- `planning`: generates mode-specific candidates and scores survival, clearance,
-  landing quality, smoothness, and uncertainty.
+- `physics`: owns validated geometry and parameters and simulates trajectories.
+  Phase 2 supplies deterministic fixed-step cube dynamics, continuous solid-face
+  collisions, triangular spike collision, gaps, and structured landing/collision
+  results. Calibration and uncertainty distributions arrive in later phases.
+- `planning`: generates bounded mode-specific candidates and scores survival,
+  clearance, landing quality, timing robustness, and uncertainty. Phase 2 supplies
+  the cube planner; ship MPC remains isolated for Phase 5.
 - `control`: converts abstract press/hold/release decisions to one replaceable
   input backend. A safety supervisor owns pause, override, and emergency release.
 - `learning`: compares predicted and observed outcomes, then makes bounded,
@@ -91,9 +95,23 @@ storage delays must never block emergency stop or input release.
 - Planner actions expire; a controller never holds indefinitely without renewal.
 - Telemetry, progress estimates, and attempt counts never directly trigger input.
 - Untrusted calibration/model data is validated before use.
+- Planner inputs reject NaN/infinity, malformed geometry, invalid dimensions, and
+  excessive magnitudes before simulation.
+- A plan processes at most 256 local geometry items, 64 nominal candidates, seven
+  timing variants per candidate, 1,200 fixed steps per trajectory, and a five
+  second horizon. Defaults are substantially smaller.
+- Candidate simulation does not mutate caller-owned state or geometry.
+
+## Phase 2 Planning Boundary
+
+The cube planner accepts a `CubeState`, `LocalGeometry`, calibrated
+`CubePhysicsParameters`, and `CubePlannerConfig`. Its `PlanDecision` is directly
+consumable by future control/debug layers and includes every candidate trajectory,
+individual score components, confidence, and explicit unavoidable-death metadata.
+The synthetic planner has no imports from capture, desktop input, telemetry, or
+wall-clock services.
 
 ## Delivery Phases
 
 The implementation follows the seven phases in the README. Each phase keeps CI
 headless and deterministic, while live-game checks remain explicit manual tests.
-

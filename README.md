@@ -16,9 +16,10 @@ The V1 target is **Stereo Madness**, including its normal transitions between
 
 ## Project Status
 
-Early development. Phase 1 provides the repository foundation, typed
-configuration, structured telemetry, and a deterministic synthetic simulator.
-Live perception and control are not yet ready for unattended gameplay.
+Early development. Phases 1 and 2 provide the repository foundation, typed
+configuration, structured telemetry, deterministic synthetic simulator, swept
+cube collision physics, and a survival-first cube trajectory planner. Live
+perception and control are not yet ready for unattended gameplay.
 
 ## V1 Goals
 
