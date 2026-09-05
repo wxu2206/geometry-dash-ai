@@ -4,7 +4,8 @@ top = 0
 width = 1280
 height = 720
 target_fps = 60
-backend = "mss"
+# "portal" opens the normal KDE source-selection dialog; it sends no input.
+backend = "portal"
 preview_scale = 1.0
 diagnostic_mode = false
 latest_frame_capacity = 1

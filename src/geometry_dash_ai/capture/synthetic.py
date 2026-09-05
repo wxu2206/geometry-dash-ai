@@ -35,6 +35,14 @@ class SyntheticFrameSource:
     def dropped_frames(self) -> int:
         return 0
 
+    @property
+    def capture_latency_ms(self) -> float:
+        return 0.0
+
+    @property
+    def maximum_recent_capture_latency_ms(self) -> float:
+        return 0.0
+
     def capture_once(self) -> CapturedFrame:
         if self._closed:
             raise CaptureUnavailable("synthetic source is closed")

@@ -18,7 +18,9 @@ preserve visible gaps as absence of a segment.
 ## Detection
 
 `ClassicalPlayerDetector` uses calibration-color signatures for the synthetic
-cube (magenta) and ship (cyan). It finds bounded connected components and emits
+cube (magenta) and ship (cyan). `geometry-dash-calibrate --sample-player` can
+derive a median RGB cube signature from a user-selected patch, avoiding source
+edits and suppressing one-pixel effects. It finds bounded connected components and emits
 `PlayerDetection` with a confidence. It returns no player rather than forcing a
 low-confidence classification.
 
@@ -47,6 +49,19 @@ as a display-only warning in this phase.
 high-confidence grounded cube, such as `JUMP +2 FRAMES`. It is deliberately a
 pure return value. The observe-only runtime does not import, construct, or call
 an input controller.
+
+## Shadow Mode
+
+The runtime evaluates that preview for every reliable cube snapshot and labels
+the window `OBSERVE ONLY`. It displays `JUMP +N frames` or `NO INPUT`, selected
+score/confidence, all-candidates-unsafe state, predicted collision, and the safe
+timing-variant fraction. A cyan selected trajectory is drawn in player-relative
+coordinates and a red marker denotes a predicted collision.
+
+These are pixels and telemetry only: no action object crosses into a control
+backend, and the observe runtime does not import `geometry_dash_ai.control`.
+The planner only recommends while player tracking, visible floor, geometry, and
+confidence are sufficient; ship predictions remain unavailable rather than guessed.
 
 ## Debug View
 

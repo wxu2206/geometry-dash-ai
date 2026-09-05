@@ -16,11 +16,13 @@ The V1 target is **Stereo Madness**, including its normal transitions between
 
 ## Project Status
 
-Early development. Phases 1–3 provide the repository foundation, typed
+Early development. Phases 1–3.5 provide the repository foundation, typed
 configuration, structured telemetry, deterministic synthetic simulator, swept
 cube collision physics, a survival-first cube trajectory planner, and an
-observe-only capture/perception/debug pipeline. Live control is not implemented
-and cannot be activated in Phase 3.
+observe-only capture/perception/debug pipeline. Phase 3.5 adds KDE Wayland
+ScreenCast-portal/PipeWire capture, local calibration, performance metrics, and
+a read-only shadow planner overlay. Live control is not implemented and cannot
+be activated in this phase.
 
 ## V1 Goals
 
@@ -146,16 +148,18 @@ Dash or performs live input automation.
 
 ## Live Game Calibration
 
-Phase 3 provides manual capture-region validation and a local debug preview:
+Phase 3.5 provides a KDE portal capture setup and local debug preview:
 
 ```bash
-geometry-dash-calibrate --left 100 --top 120 --width 1280 --height 720
-geometry-dash-observe --frames 120 --preview
+geometry-dash-calibrate --backend portal
+geometry-dash-observe --frames 120 --preview --shadow-log run.jsonl
 ```
 
 On Bazzite/KDE Wayland, direct `mss` capture can be denied by compositor policy.
-The application reports that condition safely; it does not change desktop
-security. See [docs/capture.md](docs/capture.md) and [docs/calibration.md](docs/calibration.md).
+The default portal backend displays the normal selection dialog, accepts one
+window/monitor only after approval, and streams through PipeWire locally. The
+application reports unavailability safely; it does not change desktop security.
+See [docs/capture.md](docs/capture.md) and [docs/calibration.md](docs/calibration.md).
 
 ## Safety / Emergency Stop Controls
 
@@ -175,7 +179,7 @@ Git. See [docs/data-format.md](docs/data-format.md).
 ## Limitations
 
 - V1 is limited to Stereo Madness and cube/ship gameplay.
-- Phase 3 is observe-only: it cannot send keyboard or mouse input.
+- Phase 3.5 is observe-only: it cannot send keyboard or mouse input.
 - Classical detection currently expects calibrated/high-contrast player and
   geometry colors; effects, themes, and portals remain limited.
 - Visual effects, themes, resolution scaling, latency, and compositor behavior

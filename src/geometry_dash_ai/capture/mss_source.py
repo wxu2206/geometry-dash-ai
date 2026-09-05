@@ -21,6 +21,7 @@ class MssFrameSource:
         self._timestamps: deque[int] = deque(maxlen=120)
         self._sequence = 0
         self._dropped = 0
+        self._latencies: deque[float] = deque(maxlen=120)
         self._closed = False
         try:
             import mss
@@ -64,9 +65,18 @@ class MssFrameSource:
         elapsed = self._timestamps[-1] - self._timestamps[0]
         return 0.0 if elapsed <= 0 else (len(self._timestamps) - 1) * 1_000_000_000.0 / elapsed
 
+    @property
+    def capture_latency_ms(self) -> float:
+        return 0.0 if not self._latencies else sum(self._latencies) / len(self._latencies)
+
+    @property
+    def maximum_recent_capture_latency_ms(self) -> float:
+        return 0.0 if not self._latencies else max(self._latencies)
+
     def capture_once(self) -> CapturedFrame:
         if self._closed:
             raise CaptureUnavailable("capture source is closed")
+        started = monotonic_ns()
         try:
             raw = self._mss.grab(self._capture_mapping)
         except Exception as exc:
@@ -78,9 +88,12 @@ class MssFrameSource:
             np.asarray(raw, dtype=np.uint8)[:, :, :3][:, :, ::-1]
         )
         timestamp = monotonic_ns()
+        if self._timestamps and timestamp <= self._timestamps[-1]:
+            raise CaptureUnavailable("screen-capture timestamps are not monotonic")
         frame = CapturedFrame(image, timestamp, self._sequence, self._region)
         self._sequence += 1
         self._timestamps.append(timestamp)
+        self._latencies.append((timestamp - started) / 1_000_000.0)
         return frame
 
     def close(self) -> None:

@@ -34,9 +34,11 @@ flowchart TD
 ## Module Boundaries
 
 - `capture`: owns region-bound frame acquisition, monotonic timestamps, measured
-  FPS, capture-region selection, and a latest-only bounded interface. Its mss
-  backend fails safely under unavailable Wayland permissions and does not
-  interpret pixels.
+  FPS/latency, capture-region selection, and a latest-only bounded interface.
+  The KDE backend uses only fixed user-session ScreenCast portal methods, then
+  one ephemeral PipeWire FD with local GStreamer. It validates metadata, crop,
+  and frame allocations and closes process/FD/session resources; mss remains an
+  optional fallback and neither backend interprets pixels.
 - `vision`: turns a validated frame into uncertain player and geometry detections
   using bounded classical vision, then converts screen geometry to player-relative
   Phase 2 primitives. It can display a read-only planner preview but has no
@@ -55,7 +57,8 @@ flowchart TD
 - `learning`: compares predicted and observed outcomes, then makes bounded,
   explainable calibration updates.
 - `telemetry`: records versioned events and aggregate run statistics without
-  participating in action selection.
+  participating in action selection. Explicit shadow logs are constrained below
+  `data/runs`, reject symlinks, and contain no frame payload.
 - `ui`: renders calibration and debug overlays from snapshots of other modules.
 - `simulation`: supplies deterministic synthetic observations and known physics
   for development and CI; it is not a representation of Stereo Madness data.
@@ -109,8 +112,9 @@ storage delays must never block emergency stop or input release.
   timing variants per candidate, 1,200 fixed steps per trajectory, and a five
   second horizon. Defaults are substantially smaller.
 - Candidate simulation does not mutate caller-owned state or geometry.
-- Phase 3's observation runtime imports neither `control` nor an input backend;
-  it can only capture, process, visualize, and retain bounded diagnostics.
+- Phase 3.5's observation runtime imports neither `control` nor an input backend;
+  it can only capture, process, shadow-plan, visualize, and retain bounded
+  diagnostics. Planner recommendations have no execution path.
 
 ## Phase 2 Planning Boundary
 

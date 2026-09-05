@@ -6,20 +6,27 @@ than importing Geometry Dash constants or level data.
 
 ## Phase 3 Capture Setup
 
-Phase 3 supplies `geometry-dash-calibrate` for validated manual rectangle entry
-and `geometry-dash-observe --preview` for local overlays. It is observe-only and
-does not estimate dynamics or send test inputs. Details, including KDE Wayland
-limitations, are in [capture.md](capture.md).
+Phase 3.5 supplies `geometry-dash-calibrate --backend portal` for the normal KDE
+source-selection dialog, validated crop setup, and optional manual color-patch
+sampling. Follow it with `geometry-dash-observe --preview` for local overlays.
+It is observe-only and does not estimate dynamics or send test inputs. Details,
+including KDE Wayland limitations, are in [capture.md](capture.md).
 
 ## Setup Calibration
 
 The planned setup UI will:
 
-1. Let the user position a capture rectangle without editing source code.
-2. Confirm frame delivery, timestamp stability, and measured capture FPS.
-3. Preview candidate player boxes and geometry overlays.
-4. Establish image-to-physics coordinate scaling and the visible ground line.
-5. Verify pause, manual override, and emergency stop while input is disabled.
+1. Launch Geometry Dash and open a playable level.
+2. Run `geometry-dash-calibrate --backend portal`; approve KDE’s dialog and
+   select the game window (preferred) or monitor.
+3. If a monitor was selected, choose a relative crop with command options;
+   validate it and save only after the reported dimensions are correct.
+4. Optionally use `--sample-player` over a cube patch, then run
+   `geometry-dash-observe --preview --shadow-log calibration.jsonl`.
+5. Confirm player box, ground/spike/block boxes, status confidence, scroll,
+   capture latency, and the cyan shadow trajectory. Adjust local TOML and repeat.
+6. Keep a short manual-play shadow log to compare visual survival/death outcome
+   against recommendations. No input interception or injection occurs.
 
 Machine-specific results live under `data/calibration/` and are ignored by Git.
 

@@ -3,6 +3,9 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import numpy as np
+
+from geometry_dash_ai.calibrate import sample_player_color
 from geometry_dash_ai.config.settings import ConfigError, config_from_dict, load_config
 
 
@@ -17,6 +20,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.planning.maximum_candidates, 16)
         self.assertEqual(config.planning.maximum_jump_delay_frames, 24)
         self.assertEqual(config.vision.cube_color, (255, 60, 200))
+        self.assertEqual(config.capture.backend, "portal")
 
     def test_local_configuration_overrides_one_value(self) -> None:
         with TemporaryDirectory() as directory:
@@ -57,6 +61,15 @@ class ConfigTests(unittest.TestCase):
             config_from_dict({"capture": {"preview_scale": 0.01}})
         with self.assertRaisesRegex(ConfigError, "RGB"):
             config_from_dict({"vision": {"cube_color": [True, 60, 200]}})
+        with self.assertRaisesRegex(ConfigError, "capture.backend"):
+            config_from_dict({"capture": {"backend": "untrusted"}})
+
+    def test_player_color_sampling_is_bounded_and_robust(self) -> None:
+        image = np.zeros((4, 4, 3), dtype=np.uint8)
+        image[1:3, 1:3] = (250, 50, 200)
+        self.assertEqual(sample_player_color(image, (1, 1, 2, 2)), (250, 50, 200))
+        with self.assertRaisesRegex(ValueError, "exceed"):
+            sample_player_color(image, (3, 3, 2, 2))
 
 
 if __name__ == "__main__":

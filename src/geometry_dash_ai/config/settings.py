@@ -20,7 +20,7 @@ class CaptureConfig:
     width: int = 1280
     height: int = 720
     target_fps: int = 60
-    backend: str = "mss"
+    backend: str = "portal"
     monitor: int | None = None
     preview_scale: float = 1.0
     diagnostic_mode: bool = False
@@ -387,8 +387,9 @@ def _validate(config: AppConfig) -> None:
     if not isinstance(config.capture.backend, str) or config.capture.backend not in {
         "mss",
         "synthetic",
+        "portal",
     }:
-        raise ConfigError("capture.backend must be 'mss' or 'synthetic'")
+        raise ConfigError("capture.backend must be 'portal', 'mss', or 'synthetic'")
     if config.capture.monitor is not None and (
         isinstance(config.capture.monitor, bool)
         or not isinstance(config.capture.monitor, int)

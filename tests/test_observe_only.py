@@ -13,6 +13,11 @@ from geometry_dash_ai.ui import render_debug_overlay, scale_preview
 from geometry_dash_ai.vision import ClassicalGeometryDetector, ClassicalPlayerDetector
 from geometry_dash_ai.vision.pipeline import PerceptionPipeline
 from geometry_dash_ai.vision.runtime import OBSERVE_ONLY, ObserveOnlyRuntime
+from geometry_dash_ai.vision.shadow import (
+    ShadowOutcomeComparator,
+    evaluate_shadow_plan,
+    shadow_payload,
+)
 from tests.visual_fixtures import frame, scene
 
 
@@ -54,6 +59,37 @@ class ObserveOnlyTests(unittest.TestCase):
         for index in range(3):
             buffer.append(frame(scene(), sequence=index, timestamp_ns=index + 1))
         self.assertEqual(len(buffer.recent()), 2)
+
+    def test_shadow_plan_is_display_only_and_telemetry_never_contains_pixels(self) -> None:
+        current = frame(scene())
+        snapshot = PerceptionPipeline(
+            ClassicalPlayerDetector(),
+            ClassicalGeometryDetector(),
+            PlayerTracker(),
+            GeometryFuser(),
+            ScrollEstimator(),
+        ).process(current)
+        shadow = evaluate_shadow_plan(snapshot)
+        self.assertIsNotNone(shadow.decision)
+        payload = shadow_payload(snapshot, shadow)
+        self.assertIn("recommendation", payload)
+        self.assertNotIn("image", str(payload))
+
+    def test_shadow_comparison_inferrs_only_visual_outcome(self) -> None:
+        pipeline = PerceptionPipeline(
+            ClassicalPlayerDetector(),
+            ClassicalGeometryDetector(),
+            PlayerTracker(),
+            GeometryFuser(),
+            ScrollEstimator(),
+        )
+        first = pipeline.process(frame(scene(), sequence=0, timestamp_ns=1_000_000_000))
+        comparator = ShadowOutcomeComparator()
+        comparator.record(evaluate_shadow_plan(first))
+        later = pipeline.process(frame(scene(), sequence=1, timestamp_ns=3_000_000_000))
+        outcomes = comparator.observe(later)
+        self.assertEqual(len(outcomes), 1)
+        self.assertTrue(outcomes[0].visually_survived_horizon)
 
     def test_diagnostic_writer_rejects_an_unrelated_root(self) -> None:
         region = CaptureRegion(0, 0, 4, 4)

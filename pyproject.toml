@@ -27,7 +27,10 @@ dev = [
   "pytest>=8.3,<10",
   "ruff>=0.11,<1",
 ]
-live = ["mss>=10,<11"]
+# dbus-next is pure Python.  It drives the *user-approved* ScreenCast portal;
+# GStreamer/PipeWire remain existing user-session capabilities, not packages we
+# install or configure on the host.
+live = ["dbus-next>=0.2.3,<0.3", "mss>=10,<11"]
 
 [project.scripts]
 geometry-dash-sim = "geometry_dash_ai.simulation.__main__:main"
@@ -56,6 +59,6 @@ mypy_path = "src"
 no_site_packages = true
 
 [[tool.mypy.overrides]]
-module = ["mss", "numpy", "numpy.*"]
+module = ["dbus_next", "dbus_next.*", "mss", "numpy", "numpy.*"]
 follow_imports = "skip"
 ignore_missing_imports = true
