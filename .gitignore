@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+.venv/
+venv/
+
+# Editors and local settings
+.idea/
+.vscode/
+*.swp
+.env
+.env.*
+!.env.example
+config/local.toml
+
+# Runtime output: keep directory placeholders, never generated content
+data/runs/*
+!data/runs/.gitkeep
+data/frames/*
+!data/frames/.gitkeep
+data/models/*
+!data/models/.gitkeep
+data/calibration/*
+!data/calibration/.gitkeep
+*.log
+logs/
+
+# Recordings, frame dumps, and large model artifacts
+*.avi
+*.mkv
+*.mov
+*.mp4
+*.webm
+*.npy
+*.npz
+*.onnx
+*.pt
+*.pth
+*.safetensors
+
+# OS metadata
+.DS_Store
+Thumbs.db
+

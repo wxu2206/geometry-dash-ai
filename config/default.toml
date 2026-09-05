@@ -1,0 +1,40 @@
+[capture]
+left = 0
+top = 0
+width = 1280
+height = 720
+target_fps = 60
+
+[control]
+enabled = false
+emergency_stop_key = "f12"
+pause_key = "f10"
+manual_override = true
+action_interval_ms = 16.667
+
+[visualization]
+enabled = true
+show_alternatives = true
+show_confidence = true
+
+[recording]
+enabled = false
+sample_every_n_frames = 30
+recent_buffer_seconds = 5.0
+preserve_death_context_seconds = 3.0
+compress_telemetry = true
+
+[calibration]
+enabled = false
+minimum_observations = 30
+learning_rate = 0.05
+
+[planning]
+horizon_seconds = 1.25
+safety_margin_px = 6.0
+uncertainty_weight = 1.0
+
+[logging]
+level = "INFO"
+directory = "data/runs"
+
