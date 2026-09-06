@@ -126,6 +126,21 @@ def shadow_payload(snapshot: PerceptionSnapshot, shadow: ShadowDecision) -> dict
                 if decision.predicted_collision is None
                 else decision.predicted_collision.collision_type.value
             ),
+            "candidates": [
+                {
+                    "label": candidate.candidate.label,
+                    "jump_delay_frames": candidate.candidate.jump_delay_frames,
+                    "score": round(candidate.total_score, 3),
+                    "survived": candidate.trajectory.survived_horizon,
+                    "collision": (
+                        None
+                        if candidate.trajectory.collision is None
+                        else candidate.trajectory.collision.collision_type.value
+                    ),
+                    "robustness": round(candidate.robustness_safe_fraction, 3),
+                }
+                for candidate in decision.evaluated_candidates
+            ],
         }
     return payload
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
+
 from geometry_dash_ai.tracking import GeometryFuser, PlayerTracker, ScrollEstimator
 from geometry_dash_ai.vision import (
     ClassicalGeometryDetector,
@@ -37,6 +39,18 @@ class PerceptionTests(unittest.TestCase):
         gap_left = detected.floors[0].right
         gap_right = detected.floors[1].x
         self.assertGreater(gap_right, gap_left)
+
+    def test_scaled_live_resolution_preserves_full_size_coordinates(self) -> None:
+        enlarged = np.repeat(np.repeat(scene(), 4, axis=0), 4, axis=1)
+        current = frame(enlarged)
+        player = self.player_detector.detect(current)
+        geometry = self.geometry_detector.detect(current, player)
+        self.assertIsNotNone(player)
+        assert player is not None
+        self.assertAlmostEqual(player.bounds.x, 52.0 * 4.0, delta=4.0)
+        self.assertAlmostEqual(player.bounds.width, 20.0 * 4.0, delta=4.0)
+        self.assertGreaterEqual(len(geometry.spikes), 1)
+        self.assertGreaterEqual(len(geometry.floors), 2)
 
     def test_coordinate_transform_uses_player_relative_y_up(self) -> None:
         detected_player = self.player_detector.detect(frame(scene()))

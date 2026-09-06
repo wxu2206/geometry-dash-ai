@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -136,7 +137,22 @@ def _write_local(
             "\n[vision]\n"
             f"cube_color = [{cube_color[0]}, {cube_color[1]}, {cube_color[2]}]\n"
         )
-    destination.write_text(content, encoding="utf-8")
+    payload = content.encode("utf-8")
+    descriptor = os.open(
+        destination,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("calibration configuration write did not complete")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 if __name__ == "__main__":

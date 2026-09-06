@@ -34,6 +34,17 @@ class ControlConfig:
     pause_key: str = "f10"
     manual_override: bool = True
     action_interval_ms: float = 16.667
+    backend: str = "portal"
+    action_key: str = "space"
+    tap_duration_ms: float = 35.0
+    maximum_hold_ms: float = 250.0
+    maximum_actions_per_second: int = 8
+    heartbeat_timeout_ms: float = 250.0
+    maximum_session_seconds: float = 1_800.0
+    arming_timeout_seconds: float = 30.0
+    maximum_attempts: int = 25
+    auto_retry: bool = True
+    retry_cooldown_seconds: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +81,7 @@ class VisionConfig:
 
 @dataclass(frozen=True, slots=True)
 class CalibrationConfig:
-    enabled: bool = False
+    enabled: bool = True
     minimum_observations: int = 30
     learning_rate: float = 0.05
 
@@ -95,6 +106,7 @@ class LoggingConfig:
 
 @dataclass(frozen=True, slots=True)
 class AppConfig:
+    schema_version: int = 1
     capture: CaptureConfig = CaptureConfig()
     control: ControlConfig = ControlConfig()
     visualization: VisualizationConfig = VisualizationConfig()
@@ -150,7 +162,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
         "vision",
         "visualization",
     }
-    unknown_sections = set(data) - known_sections
+    unknown_sections = set(data) - known_sections - {"schema_version"}
     if unknown_sections:
         names = ", ".join(sorted(unknown_sections))
         raise ConfigError(f"unknown configuration section(s): {names}")
@@ -187,7 +199,24 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
     _reject_unknown(
         "control",
         control,
-        {"enabled", "emergency_stop_key", "pause_key", "manual_override", "action_interval_ms"},
+        {
+            "enabled",
+            "emergency_stop_key",
+            "pause_key",
+            "manual_override",
+            "action_interval_ms",
+            "backend",
+            "action_key",
+            "tap_duration_ms",
+            "maximum_hold_ms",
+            "maximum_actions_per_second",
+            "heartbeat_timeout_ms",
+            "maximum_session_seconds",
+            "arming_timeout_seconds",
+            "maximum_attempts",
+            "auto_retry",
+            "retry_cooldown_seconds",
+        },
     )
     _reject_unknown(
         "visualization", visualization, {"enabled", "show_alternatives", "show_confidence"}
@@ -242,6 +271,7 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
 
     try:
         result = AppConfig(
+            schema_version=data.get("schema_version", 1),
             capture=CaptureConfig(**capture),
             control=ControlConfig(**control),
             visualization=VisualizationConfig(**visualization),
@@ -261,6 +291,8 @@ def config_from_dict(data: dict[str, Any]) -> AppConfig:
 
 
 def _validate(config: AppConfig) -> None:
+    if config.schema_version != 1:
+        raise ConfigError("unsupported configuration schema_version")
     integer_values = {
         "capture.left": config.capture.left,
         "capture.top": config.capture.top,
@@ -268,6 +300,8 @@ def _validate(config: AppConfig) -> None:
         "capture.height": config.capture.height,
         "capture.target_fps": config.capture.target_fps,
         "capture.latest_frame_capacity": config.capture.latest_frame_capacity,
+        "control.maximum_actions_per_second": config.control.maximum_actions_per_second,
+        "control.maximum_attempts": config.control.maximum_attempts,
         "recording.sample_every_n_frames": config.recording.sample_every_n_frames,
         "recording.maximum_recent_frames": config.recording.maximum_recent_frames,
         "calibration.minimum_observations": config.calibration.minimum_observations,
@@ -286,6 +320,7 @@ def _validate(config: AppConfig) -> None:
             raise ConfigError(f"{name} exceeds supported bounds")
     boolean_values = {
         "control.enabled": config.control.enabled,
+        "control.auto_retry": config.control.auto_retry,
         "control.manual_override": config.control.manual_override,
         "visualization.enabled": config.visualization.enabled,
         "visualization.show_alternatives": config.visualization.show_alternatives,
@@ -301,7 +336,13 @@ def _validate(config: AppConfig) -> None:
         "capture.width": config.capture.width,
         "capture.height": config.capture.height,
         "capture.target_fps": config.capture.target_fps,
+        "control.tap_duration_ms": config.control.tap_duration_ms,
         "control.action_interval_ms": config.control.action_interval_ms,
+        "control.maximum_hold_ms": config.control.maximum_hold_ms,
+        "control.heartbeat_timeout_ms": config.control.heartbeat_timeout_ms,
+        "control.maximum_session_seconds": config.control.maximum_session_seconds,
+        "control.arming_timeout_seconds": config.control.arming_timeout_seconds,
+        "control.retry_cooldown_seconds": config.control.retry_cooldown_seconds,
         "recording.sample_every_n_frames": config.recording.sample_every_n_frames,
         "recording.recent_buffer_seconds": config.recording.recent_buffer_seconds,
         "recording.preserve_death_context_seconds": config.recording.preserve_death_context_seconds,
@@ -416,13 +457,32 @@ def _validate(config: AppConfig) -> None:
     for name, (value, minimum, maximum) in bounded_integers.items():
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
             raise ConfigError(f"{name} must be an integer in [{minimum}, {maximum}]")
-    control_keys = {
-        "control.emergency_stop_key": config.control.emergency_stop_key,
-        "control.pause_key": config.control.pause_key,
-    }
-    for name, value in control_keys.items():
-        if not isinstance(value, str) or not value.strip() or len(value) > 64:
+    if config.control.backend not in {"portal", "mock"}:
+        raise ConfigError("control.backend must be 'portal' or 'mock'")
+    for name, key in (
+        ("control.emergency_stop_key", config.control.emergency_stop_key),
+        ("control.pause_key", config.control.pause_key),
+    ):
+        if not isinstance(key, str) or not key.strip() or len(key) > 64:
             raise ConfigError(f"{name} must be a non-empty string of at most 64 characters")
+    if config.control.action_key != "space":
+        raise ConfigError("control.action_key is restricted to 'space'")
+    if not 10.0 <= config.control.tap_duration_ms <= config.control.maximum_hold_ms <= 1_000.0:
+        raise ConfigError("control tap/hold duration is invalid")
+    if not 1 <= config.control.maximum_actions_per_second <= 20:
+        raise ConfigError("control.maximum_actions_per_second must be within 1..20")
+    if not 50.0 <= config.control.heartbeat_timeout_ms <= 2_000.0:
+        raise ConfigError("control.heartbeat_timeout_ms must be within 50..2000")
+    if not 30.0 <= config.control.maximum_session_seconds <= 7_200.0:
+        raise ConfigError("control.maximum_session_seconds must be within 30..7200")
+    if not 3.0 <= config.control.arming_timeout_seconds <= 120.0:
+        raise ConfigError("control.arming_timeout_seconds must be within 3..120")
+    if not 1 <= config.control.maximum_attempts <= 200:
+        raise ConfigError("control.maximum_attempts must be within 1..200")
+    if not 0.25 <= config.control.retry_cooldown_seconds <= 10.0:
+        raise ConfigError("control.retry_cooldown_seconds must be within 0.25..10")
+    if config.logging.directory.is_absolute() or ".." in config.logging.directory.parts:
+        raise ConfigError("logging.directory must be a safe project-relative path")
     if not isinstance(config.logging.level, str) or config.logging.level.upper() not in {
         "CRITICAL",
         "DEBUG",

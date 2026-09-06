@@ -65,7 +65,7 @@ class PerceptionPipeline:
 
     def process(self, frame: CapturedFrame) -> PerceptionSnapshot:
         start_ns = monotonic_ns()
-        player = self._player_detector.detect(frame)
+        player = self._player_detector.detect(frame, self._tracker.predicted_bounds)
         raw_geometry = self._geometry_detector.detect(frame, player)
         tracked = self._tracker.update(frame, player)
         fused = self._fuser.update(raw_geometry)

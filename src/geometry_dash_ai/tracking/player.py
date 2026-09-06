@@ -20,13 +20,17 @@ class TrackedPlayer:
     lost_seconds: float
     frame_index: int
     timestamp_ns: int
+    ax: float = 0.0
+    ay: float = 0.0
+    age_frames: int = 0
+    lost_frames: int = 0
 
     def __post_init__(self) -> None:
         if self.bounds is not None and not isinstance(self.bounds, ScreenBox):
             raise ValueError("tracked bounds are invalid")
         if not isinstance(self.mode, PlayerMode):
             raise ValueError("tracked player mode is invalid")
-        for name in ("vx", "vy", "confidence", "lost_seconds"):
+        for name in ("vx", "vy", "ax", "ay", "confidence", "lost_seconds"):
             value = getattr(self, name)
             if (
                 not isinstance(value, (int, float))
@@ -76,6 +80,10 @@ class PlayerTracker:
     def maximum_missing_seconds(self) -> float:
         return self._maximum_missing_seconds
 
+    @property
+    def predicted_bounds(self) -> ScreenBox | None:
+        return None if self._previous is None else self._previous.bounds
+
     def update(self, frame: CapturedFrame, detection: PlayerDetection | None) -> TrackedPlayer:
         if detection is not None and not isinstance(detection, PlayerDetection):
             raise ValueError("tracker detection is invalid")
@@ -112,6 +120,10 @@ class PlayerTracker:
             vx = self._bounded_velocity(raw_vx, previous.vx)
             vy = self._bounded_velocity(raw_vy, previous.vy)
         confidence = min(1.0, 0.75 * detection.confidence + 0.25 * mode_confidence)
+        ax = ay = 0.0
+        if previous is not None and delta_seconds > 0.0:
+            ax = self._bounded_velocity((vx - previous.vx) / delta_seconds, previous.ax)
+            ay = self._bounded_velocity((vy - previous.vy) / delta_seconds, previous.ay)
         return TrackedPlayer(
             detection.bounds,
             vx,
@@ -121,6 +133,10 @@ class PlayerTracker:
             0.0,
             detection.frame_index,
             detection.timestamp_ns,
+            ax,
+            ay,
+            1 if previous is None else previous.age_frames + 1,
+            0,
         )
 
     def _missing(
@@ -145,6 +161,10 @@ class PlayerTracker:
             lost,
             frame.sequence,
             frame.timestamp_ns,
+            previous.ax * 0.5,
+            previous.ay * 0.5,
+            previous.age_frames + 1,
+            previous.lost_frames + 1,
         )
 
     def _bounded_velocity(self, raw: float, prior: float) -> float:

@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 
 from geometry_dash_ai.calibrate import sample_player_color
+from geometry_dash_ai.config.persistence import save_local_config
 from geometry_dash_ai.config.settings import ConfigError, config_from_dict, load_config
 
 
@@ -70,6 +71,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(sample_player_color(image, (1, 1, 2, 2)), (250, 50, 200))
         with self.assertRaisesRegex(ValueError, "exceed"):
             sample_player_color(image, (3, 3, 2, 2))
+
+    def test_local_configuration_round_trip_is_valid_and_owner_only(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            original = load_config(Path("config/default.toml"))
+            path = save_local_config(root, original)
+            restored = load_config(Path("config/default.toml"), path)
+            self.assertEqual(restored, original)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
 
 if __name__ == "__main__":

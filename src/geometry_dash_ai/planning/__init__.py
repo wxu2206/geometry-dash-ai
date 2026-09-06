@@ -8,6 +8,12 @@ from geometry_dash_ai.planning.cube import (
     ScoreComponents,
     plan_cube_action,
 )
+from geometry_dash_ai.planning.ship import (
+    ShipCandidate,
+    ShipDecision,
+    ShipPlannerConfig,
+    plan_ship_action,
+)
 
 __all__ = [
     "CubeAction",
@@ -16,5 +22,9 @@ __all__ = [
     "EvaluatedCandidate",
     "PlanDecision",
     "ScoreComponents",
+    "ShipCandidate",
+    "ShipDecision",
+    "ShipPlannerConfig",
     "plan_cube_action",
+    "plan_ship_action",
 ]

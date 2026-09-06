@@ -420,6 +420,8 @@ def _collect_contacts(
     geometry: LocalGeometry,
 ) -> list[_Contact]:
     contacts: list[_Contact] = []
+    start_bounds = start.bounds
+    end_bounds = end.bounds
     for floor in geometry.floors:
         landing = _floor_landing_contact(start, end, floor)
         if landing is not None:
@@ -427,13 +429,17 @@ def _collect_contacts(
     for solid in geometry.solids:
         contacts.extend(_solid_contacts(start, end, solid))
     for spike in geometry.spikes:
-        collision_time = swept_spike_collision_time(spike, start.bounds, end.bounds)
+        collision_time = swept_spike_collision_time(spike, start_bounds, end_bounds)
         if collision_time is not None:
             contacts.append(_Contact(collision_time, CollisionType.SPIKE, spike.obstacle_id))
 
-    if end.bounds.top <= geometry.death_y:
-        denominator = start.bounds.top - end.bounds.top
-        fraction = 1.0 if denominator <= 0 else (start.bounds.top - geometry.death_y) / denominator
+    if end_bounds.top <= geometry.death_y:
+        denominator = start_bounds.top - end_bounds.top
+        fraction = (
+            1.0
+            if denominator <= 0
+            else (start_bounds.top - geometry.death_y) / denominator
+        )
         contacts.append(_Contact(max(0.0, min(1.0, fraction)), CollisionType.GAP, "gap"))
     return contacts
 

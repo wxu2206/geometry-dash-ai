@@ -17,12 +17,19 @@ preserve visible gaps as absence of a segment.
 
 ## Detection
 
-`ClassicalPlayerDetector` uses calibration-color signatures for the synthetic
-cube (magenta) and ship (cyan). `geometry-dash-calibrate --sample-player` can
+`ClassicalPlayerDetector` combines calibrated RGB distance with
+brightness-normalized chroma similarity for the cube and ship. Candidate
+components must also satisfy bounded area, shape, expected size, and proximity
+to the tracker prediction. `geometry-dash-ai calibrate --sample-player` can
 derive a median RGB cube signature from a user-selected patch, avoiding source
 edits and suppressing one-pixel effects. It finds bounded connected components and emits
 `PlayerDetection` with a confidence. It returns no player rather than forcing a
 low-confidence classification.
+
+For large capture crops, classical masks are evaluated on a bounded roughly
+400×240 analysis grid and detections are transformed back to full capture-pixel
+coordinates. This keeps 720p perception practical without changing the explicit
+planner coordinate boundary; tests cover the scaled-coordinate path.
 
 `ClassicalGeometryDetector` intentionally detects only useful, high-contrast
 objects: bright horizontal floor/ceiling runs, bright rectangular solids, and
@@ -32,9 +39,9 @@ screen-space and carries its own confidence.
 
 ## Tracking and Fusion
 
-`PlayerTracker` uses monotonic timestamps, smooths finite velocity estimates,
-caps velocity, rejects non-increasing timestamps, decays confidence during
-misses, and smooths cube/ship mode votes. `ScrollEstimator` tracks geometry
+`PlayerTracker` uses monotonic timestamps, smooths finite velocity and acceleration,
+caps velocity, rejects non-increasing timestamps, predicts briefly through misses,
+records age/lost frames, and smooths cube/ship mode votes. `ScrollEstimator` tracks geometry
 anchors rather than player movement. `GeometryFuser` retains a bounded history
 and blends overlapping boxes to reduce one-frame jitter; it never reconstructs
 an unbounded map.
@@ -58,7 +65,9 @@ score/confidence, all-candidates-unsafe state, predicted collision, and the safe
 timing-variant fraction. A cyan selected trajectory is drawn in player-relative
 coordinates and a red marker denotes a predicted collision.
 
-These are pixels and telemetry only: no action object crosses into a control
+The overlay draws the selected path in cyan, one high-scoring alternative in
+gray, landing in green, and collision in red. These are pixels and telemetry
+only: no action object crosses into a control
 backend, and the observe runtime does not import `geometry_dash_ai.control`.
 The planner only recommends while player tracking, visible floor, geometry, and
 confidence are sufficient; ship predictions remain unavailable rather than guessed.

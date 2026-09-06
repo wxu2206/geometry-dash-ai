@@ -100,6 +100,9 @@ class Simulator:
             if portal.x >= previous_x:
                 self.state.mode = portal.mode
                 self.state.grounded = False
+                self.state.vy = 0.0
+                if portal.mode is GameMode.SHIP:
+                    self.state.y = max(self.state.y, self.config.player_height * 3.0)
                 transitions.append(portal.mode)
             self._next_portal += 1
         return tuple(transitions)

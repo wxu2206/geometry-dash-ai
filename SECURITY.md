@@ -27,6 +27,27 @@ Relevant issues include, but are not limited to:
 - dependency or build-chain vulnerabilities; and
 - accidental exposure of captured frames, credentials, or private logs.
 
+## Alpha security boundaries
+
+Screen capture uses the fixed `org.freedesktop.portal.ScreenCast` endpoint on the
+current user's session bus and begins only after the KDE source chooser succeeds.
+The approved PipeWire descriptor is passed to a fixed, `shell=False` GStreamer
+argument vector. The selected surface is cropped immediately; frames remain local
+and diagnostic saving is off by default.
+
+Live input uses only the fixed `org.freedesktop.portal.RemoteDesktop` interface,
+requests keyboard capability only, and can emit only bounded Space press/release
+events. Permission, arming, and Running are distinct. Stale observations,
+confidence loss, portal failure, watchdog expiry, pause, shutdown, completion,
+and Emergency Stop release the action and disarm. Portal sessions and tokens are
+not persisted or logged.
+
+`geometry-dash-ai stop` writes an owner-only flag under `XDG_RUNTIME_DIR`; no TCP,
+UDP, Unix socket listener, or remote endpoint exists. A local `flock` prevents two
+live-control owners. Configuration, calibration, history, and diagnostic paths
+are fixed beneath project/user runtime locations, reject traversal/symlinks at
+their security boundaries, and use non-executable TOML/JSON/JSONL. Pickle and
+unsafe dynamic loading are not used.
+
 Do not attach sensitive recordings, tokens, personal data, or weaponized payloads
 to public reports.
-

@@ -45,17 +45,18 @@ flowchart TD
   authority to send input.
 - `tracking`: associates observations over time and estimates position, velocity,
   mode, confidence, and stable local geometry.
-- `physics`: owns validated geometry and parameters and simulates trajectories.
-  Phase 2 supplies deterministic fixed-step cube dynamics, continuous solid-face
-  collisions, triangular spike collision, gaps, and structured landing/collision
-  results. Calibration and uncertainty distributions arrive in later phases.
+- `physics`: owns validated geometry and separate cube/ship parameters. Cube
+  dynamics use continuous solid/spike collision checks; ship dynamics use bounded
+  held/released acceleration, velocity limits, and collision forecasts.
 - `planning`: generates bounded mode-specific candidates and scores survival,
   clearance, landing quality, timing robustness, and uncertainty. Phase 2 supplies
-  the cube planner; ship MPC remains isolated for Phase 5.
-- `control`: converts abstract press/hold/release decisions to one replaceable
-  input backend. A safety supervisor owns pause, override, and emergency release.
-- `learning`: compares predicted and observed outcomes, then makes bounded,
-  explainable calibration updates.
+  the cube planner and a bounded deterministic short-horizon ship MPC.
+- `control`: exposes only the Geometry Dash action surface. The live backend uses
+  fixed `RemoteDesktop` user-portal methods, requests keyboard only, and emits
+  Space only. The guard owns permission/arming/running separation, rate limits,
+  deadlines, watchdogs, session expiry, and release-on-failure.
+- `learning`: collects visual manual cube arcs, robustly fits ballistic parameters,
+  and stores bounded current/last-known-good models in validated JSON.
 - `telemetry`: records versioned events and aggregate run statistics without
   participating in action selection. Explicit shadow logs are constrained below
   `data/runs`, reject symlinks, and contain no frame payload.
@@ -112,9 +113,19 @@ storage delays must never block emergency stop or input release.
   timing variants per candidate, 1,200 fixed steps per trajectory, and a five
   second horizon. Defaults are substantially smaller.
 - Candidate simulation does not mutate caller-owned state or geometry.
-- Phase 3.5's observation runtime imports neither `control` nor an input backend;
+- The standalone observation runtime imports neither `control` nor an input backend;
   it can only capture, process, shadow-plan, visualize, and retain bounded
   diagnostics. Planner recommendations have no execution path.
+
+## Alpha supervisor lifecycle
+
+The `app` package owns explicit states from setup through capture, Observe,
+Shadow, permission, arming, Running, pause/death/retry/completion, degradation,
+and shutdown. Tk only displays snapshots and invokes state transitions; capture,
+perception, calibration, planning, and control work run off its event loop. A
+bounded `deque(maxlen=1)` gives latest-frame semantics. All Running paths pass
+through the readiness gate and `GuardedActionController`; exceptions release the
+action before state degradation. A local `flock` prevents two live controllers.
 
 ## Phase 2 Planning Boundary
 

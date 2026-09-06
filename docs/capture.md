@@ -1,4 +1,4 @@
-# Capture and Observe-Only Runtime
+# Capture and application runtime
 
 Phase 3 captures only the configured rectangle. It never requests window titles,
 clipboard data, game memory, level files, or a full-desktop recording.
@@ -31,8 +31,9 @@ window where offered, or choose one monitor. The app cannot enumerate windows,
 preselect a source, remember a grant, or weaken compositor policy.
 
 After approval, the portal returns one ephemeral PipeWire node and FD. The
-source passes that FD only to local `gst-launch-1.0 pipewiresrc`, converts to
-RGB, reads one frame at a time, and crops it immediately to `[capture]`.
+source passes that FD only to local `gst-launch-1.0 pipewiresrc`, uses a leaky
+one-frame queue, converts to RGB, and applies `videocrop` before pixels enter the
+Python pipe. Python validates exactly the configured `[capture]` dimensions.
 
 The `live` optional extra provides the small pure-Python portal client; the
 existing user session must already provide GStreamer’s PipeWire plugin:
@@ -41,10 +42,11 @@ existing user session must already provide GStreamer’s PipeWire plugin:
 python -m pip install -e '.[dev,live]'
 ```
 
-Run the observer with:
+Run the application or standalone observer with:
 
 ```bash
-geometry-dash-observe --frames 120
+geometry-dash-ai
+geometry-dash-ai observe --frames 120
 # or
 python -m geometry_dash_ai.vision --frames 120 --preview
 ```
@@ -99,6 +101,16 @@ when an explicit caller invokes its event-write method. Writes are confined to
 the active project's `data/frames/` directory, which is ignored by Git.
 Telemetry contains counters and confidence, never raw pixels. No frames are
 uploaded or shared by this project.
+
+## RemoteDesktop control permission
+
+Capture permission never implies control permission. From a healthy Shadow
+session, the user may separately request `org.freedesktop.portal.RemoteDesktop`.
+The app requests keyboard device type only and sends only Space keysyms through
+the portal notification method. KDE must approve the request every launch. The
+session is not persisted; revocation or close releases the key and closes the
+portal session. Pointer, touchscreen, clipboard, generic key names, and arbitrary
+DBus service/method configuration are absent.
 
 ## Shadow telemetry
 

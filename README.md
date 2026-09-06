@@ -1,220 +1,136 @@
 # Geometry Dash AI
 
-Geometry Dash AI is an experimental, vision-based agent designed to learn to
-play Geometry Dash from the same rendered pixels available to a human player.
-It combines live screen capture, player and obstacle detection, online physics
-estimation, trajectory prediction, collision forecasting, model-predictive
-control, and feedback from failed attempts.
+Geometry Dash AI `0.2.0a1` is a local, vision-based alpha designed to attempt
+Stereo Madness from rendered pixels. It combines KDE Wayland portal capture,
+classical perception, tracked local geometry, cube trajectory planning, ship
+model-predictive control, visual run-state detection, guarded portal input, and
+local calibration. It does not read game memory or level files and has no
+timestamp/progress click script.
 
-The V1 target is **Stereo Madness**, including its normal transitions between
-**cube** and **ship** modes.
+> This alpha has completed its synthetic pixel-boundary cube → ship → cube demo.
+> It has **not** been verified completing Stereo Madness live. Capture and input
+> portal flows still require the user to approve KDE dialogs on the real desktop.
 
-> [!IMPORTANT]
-> This project does not read level files, inspect game memory, use mods to
-> extract game state, replay prerecorded click macros, or use hardcoded Stereo
-> Madness timestamps. Progress estimates are telemetry, never action triggers.
+## Quick start
 
-## Project Status
-
-Early development. Phases 1–3.5 provide the repository foundation, typed
-configuration, structured telemetry, deterministic synthetic simulator, swept
-cube collision physics, a survival-first cube trajectory planner, and an
-observe-only capture/perception/debug pipeline. Phase 3.5 adds KDE Wayland
-ScreenCast-portal/PipeWire capture, local calibration, performance metrics, and
-a read-only shadow planner overlay. Live control is not implemented and cannot
-be activated in this phase.
-
-## V1 Goals
-
-- Observe live rendered gameplay through configurable screen capture.
-- Track the player and recognize cube and ship modes.
-- Infer local platforms, spikes, gaps, ceilings, corridors, and portals.
-- Estimate physics from observed motion rather than assuming exact constants.
-- Predict candidate trajectories and select actions by survival margin.
-- Detect death and completion, restart safely, and learn from prediction errors.
-- Complete Stereo Madness without a timestamp script or internal game access.
-
-## How It Works
-
-```mermaid
-flowchart LR
-    A[Live screen] --> B[Capture]
-    B --> C[Perception]
-    C --> D[Tracking + local geometry]
-    D --> E[Physics estimation]
-    E --> F[Trajectory simulation]
-    F --> G[Collision forecast]
-    G --> H[Action planner]
-    H --> I[Input controller]
-    I --> A
-    A --> J[Death / completion detection]
-    J --> K[Learning + telemetry]
-    K --> E
+```bash
+cd /var/home/will/geometry-dash-ai
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev,live]'
+geometry-dash-ai doctor
+geometry-dash-ai demo
+geometry-dash-ai
 ```
 
-Cube planning compares no input with jumps at several future frame offsets.
-Ship control continually evaluates short hold/release sequences. Both planners
-will score collision risk, clearance, uncertainty, and safe landing or corridor
-margins instead of relying on a fixed distance-to-spike rule.
+`python -m geometry_dash_ai` is equivalent to the main command. Other useful
+commands are:
+
+```bash
+geometry-dash-ai calibrate --backend portal --write-local
+geometry-dash-ai observe --frames 300 --preview
+geometry-dash-ai shadow --frames 300 --preview
+geometry-dash-ai benchmark
+geometry-dash-ai stop
+```
+
+## Application workflow
+
+On first launch, Setup saves validated machine-local crop, vision, retry, live
+control, and recording settings to ignored `config/local.toml`. Launch Geometry
+Dash, choose Stereo Madness, then Start Observe. KDE asks which single window or
+monitor may be captured. Prefer the game window; monitor capture is cropped
+immediately to the configured rectangle.
+
+Observe displays the validated local frame, tracked player, floor, solids,
+spikes, ceiling, mode, rates, latency, and confidence. Shadow adds cube candidate
+planning, a selected trajectory, a useful alternative, predicted landing and
+collision markers, and recommendations—but cannot send input.
+
+Live control is a separate opt-in sequence: enable it in Setup, acknowledge the
+warning, enter Shadow, request KDE keyboard permission, click Arm, wait through
+the visible countdown, then click Start AI. Permission, arming, and running are
+distinct states. The only generated key is a bounded Space action. No pointer,
+typing, clipboard, or generic automation API exists.
+
+## What works
+
+- Explicit application state machine and responsive Tk engineering dashboard.
+- ScreenCast portal capture on the user session bus, one user-selected source,
+  ephemeral PipeWire FD, fixed local GStreamer reader, bounded crop and cleanup.
+- RGB/chroma player signatures, component shape/size checks, temporal prior,
+  cube/ship mode smoothing, bounded prediction/reacquisition, velocity and
+  acceleration estimates.
+- Conservative floor, gap, platform, ceiling, and triangular spike perception
+  with bounded temporal fusion and player-relative coordinate conversion.
+- Survival-first cube planner with swept collision, landing margins, timing
+  variants, uncertainty, candidate rationale, and stale-decision rejection.
+- Dedicated ship dynamics and deterministic bounded binary MPC with collision
+  dominance, clearance, uncertainty, switching cost, and hysteresis.
+- Visual manual-jump collection, robust quadratic cube fit, outlier rejection,
+  bounds, last-known-good calibration, and versioned JSON persistence.
+- Visual active/death/reset/completion preparation, bounded attempts and retry,
+  owner-only local emergency-stop flag, exclusive live-control lock, watchdogs,
+  local bounded run summaries, and frames off by default.
+- Deterministic headless CI and a pixel-boundary synthetic application demo.
+
+## Safety and privacy
+
+The default configuration disables live control and diagnostic recording. Live
+action dispatch fails closed on stale capture, missing player, unknown mode, low
+geometry/tracking readiness, planner failure, portal permission loss, heartbeat
+loss, excessive hold, session expiry, capture failure, shutdown, or Emergency
+Stop. One process at a time may own live control. `geometry-dash-ai stop` uses an
+owner-only runtime file under `XDG_RUNTIME_DIR`; it exposes no network service.
+
+Frames stay local, are never uploaded, and are not placed in logs. Raw diagnostic
+frames are off by default and, if explicitly enabled by tooling, remain in the
+ignored bounded `data/frames` area. Portal capability/session values are neither
+persisted nor logged. Compact run/calibration records stay under ignored `data/`.
 
 ## Architecture
 
-The runtime is split into capture, vision, tracking, physics, planning, control,
-learning, telemetry, UI, configuration, and simulation packages. Data crosses
-those boundaries through small typed models so classical vision components can
-later be replaced by learned ones. See [docs/architecture.md](docs/architecture.md).
-
-## Repository Structure
-
 ```text
-config/                     User-editable TOML configuration
-src/geometry_dash_ai/
-  capture/                  Region-bounded, latest-frame acquisition
-  vision/                   Classical player/geometry perception and preview
-  tracking/                 Timestamped player, scroll, and geometry fusion
-  physics/                  Calibrated dynamics and trajectories
-  planning/                 Cube and ship action selection
-  control/                  Input backends and safety controls
-  learning/                 Failure-driven parameter adaptation
-  telemetry/                Structured events and run statistics
-  ui/                       Calibration/debug visualization
-  config/                   Configuration loading and validation
-  simulation/               Synthetic game environment
-tests/                      Unit and synthetic integration tests
-data/{runs,frames,models}/   Ignored runtime artifacts
-data/calibration/           Local calibration outputs (ignored)
-docs/                       Design and operating documentation
-scripts/                    Repository-local helper scripts
+portal capture -> validated latest frame -> perception/tracking -> local geometry
+      -> cube planner or ship MPC -> runtime readiness gate -> guarded Space backend
+                    |                         |
+                    +-> overlay/shadow        +-> visual outcome/calibration/history
 ```
 
-## Requirements
+The packages remain separated into `app`, `capture`, `vision`, `tracking`,
+`physics`, `planning`, `control`, `learning`, `telemetry`, `ui`, `config`, and
+`simulation`. See [architecture](docs/architecture.md), [capture](docs/capture.md),
+[perception](docs/perception.md), [planner](docs/planner.md), and the
+[user guide](docs/user-guide.md).
 
-- Python 3.11 or newer
-- A desktop session capable of displaying Geometry Dash (for later live phases)
-- Permission to capture the selected window region and synthesize input
-- Optional native capabilities required by future capture/input backends
+## Bazzite / KDE Wayland
 
-The synthetic simulator and unit tests do not require Geometry Dash, screen
-capture permissions, or native desktop packages.
+Direct `mss` capture is commonly denied by the compositor and is not bypassed.
+The supported path is the normal ScreenCast portal and PipeWire. The pure-Python
+`dbus-next` dependency lives in `.venv`; GStreamer/PipeWire must already exist in
+the user environment. Never use `sudo`, `dnf`, `rpm`, `rpm-ostree`, host package
+installation, compositor weakening, or protected system writes for this project.
+See [Bazzite setup](docs/bazzite-setup.md).
 
-## Bazzite Development Environment
-
-This project is developed on immutable Fedora-based Bazzite. Do not use `sudo`,
-`dnf`, `rpm`, `rpm-ostree`, host package installation, privilege escalation, or
-writes to protected system locations. Use a repository-local virtual environment
-and `pip` inside it. If a native dependency is absent, report it as a blocker;
-do not modify the host. See [docs/bazzite-setup.md](docs/bazzite-setup.md).
-
-## Setup
+## Development
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-cp config/default.toml config/local.toml
+.venv/bin/python -m ruff check .
+.venv/bin/python -m mypy src
+.venv/bin/python -m pytest
+.venv/bin/python -m compileall -q src tests scripts
+.venv/bin/python -m pip check
+git diff --check
 ```
 
-Edit `config/local.toml` for machine-specific capture coordinates and controls.
-It is ignored by Git. The default configuration is safe: live input is disabled.
+Runtime artifacts, local config, recordings, calibration, and models are ignored
+by Git. The alpha is limited to cube/ship mechanics and needs calibration and
+live visual validation for the user’s game resolution/theme. RemoteDesktop
+behavior can vary by portal version. See [known limitations](docs/user-guide.md#known-limitations).
 
-## Running the Synthetic Simulator
+## Security and legal
 
-```bash
-geometry-dash-sim --steps 240
-# or without installing the entry point:
-PYTHONPATH=src python -m geometry_dash_ai.simulation --steps 240
-```
-
-For the headless visual-perception smoke test:
-
-```bash
-python scripts/perception_demo.py --frames 120
-```
-
-The demo runs the observation pipeline over a small deterministic raster scene
-and reports detected mode, geometry count, confidence, and processing latency.
-
-## Running Tests
-
-```bash
-python -m pytest
-python -m ruff check .
-python -m mypy src
-```
-
-CI runs only deterministic unit and synthetic tests. It never starts Geometry
-Dash or performs live input automation.
-
-## Live Game Calibration
-
-Phase 3.5 provides a KDE portal capture setup and local debug preview:
-
-```bash
-geometry-dash-calibrate --backend portal
-geometry-dash-observe --frames 120 --preview --shadow-log run.jsonl
-```
-
-On Bazzite/KDE Wayland, direct `mss` capture can be denied by compositor policy.
-The default portal backend displays the normal selection dialog, accepts one
-window/monitor only after approval, and streams through PipeWire locally. The
-application reports unavailability safely; it does not change desktop security.
-See [docs/capture.md](docs/capture.md) and [docs/calibration.md](docs/calibration.md).
-
-## Safety / Emergency Stop Controls
-
-Live input is disabled until explicitly enabled in local configuration. The
-planned controller has pause, resume, manual override, and a configurable
-emergency-stop key (default: `F12`). Emergency stop must synchronously release
-all held inputs. Test controls in a safe window before enabling automation.
-
-## Data Collection
-
-The runtime will combine sampled frames with an in-memory circular buffer and
-preserve dense context only around events such as deaths and transitions.
-Telemetry is written as compressed or line-delimited structured records. Raw
-frames, recordings, runs, calibration output, and model artifacts are ignored by
-Git. See [docs/data-format.md](docs/data-format.md).
-
-## Limitations
-
-- V1 is limited to Stereo Madness and cube/ship gameplay.
-- Phase 3.5 is observe-only: it cannot send keyboard or mouse input.
-- Classical detection currently expects calibrated/high-contrast player and
-  geometry colors; effects, themes, and portals remain limited.
-- Visual effects, themes, resolution scaling, latency, and compositor behavior
-  can reduce perception and control accuracy.
-- Automated input can affect the wrong application if focus or calibration is
-  incorrect. Keep the emergency stop available.
-
-## Roadmap
-
-1. Repository foundation, configuration, telemetry, and synthetic simulator.
-2. Cube collision physics, candidate trajectories, planner, and tests.
-3. Screen capture, player/obstacle perception, and debug visualization.
-4. Live cube calibration and control through the ship portal.
-5. Ship physics and model-predictive control.
-6. Death/completion detection, restart, failure logging, and adaptation.
-7. Reliability, storage controls, statistics, and documentation polish.
-
-## Contributing
-
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and keep
-changes focused, tested, and free of recordings, secrets, and gameplay macros.
-
-## Security
-
-Do not file vulnerabilities publicly. Follow [SECURITY.md](SECURITY.md),
-especially for issues involving screen capture, input automation, model files,
-arbitrary file access, or command execution.
-
-## License
-
-Released under the [MIT License](LICENSE).
-
-## Disclaimer
-
-This independent research project is not affiliated with, endorsed by, or
-sponsored by RobTop Games. Geometry Dash names and assets belong to their
-respective owners. Use automation responsibly and comply with applicable game,
-platform, and community rules.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+This independent research project is not affiliated with or endorsed by RobTop
+Games. Geometry Dash names and assets belong to their respective owners. Use
+automation responsibly and comply with relevant game/platform rules.

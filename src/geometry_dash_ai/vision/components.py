@@ -11,6 +11,11 @@ MAX_MASK_PIXELS = 100_000
 MAX_COMPONENTS = 256
 
 
+def analysis_scale(width: int, height: int) -> int:
+    """Bound classical masks near 400x240 while preserving full-size outputs."""
+    return max(1, (width + 399) // 400, (height + 239) // 240)
+
+
 @dataclass(frozen=True, slots=True)
 class Component:
     x: int

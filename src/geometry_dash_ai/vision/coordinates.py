@@ -69,6 +69,8 @@ def local_geometry_from_screen(
     solids = tuple(
         transform.solid(box, f"vision-solid-{index}") for index, box in enumerate(geometry.solids)
     )
+    if geometry.ceiling is not None:
+        solids += (transform.solid(geometry.ceiling, "vision-ceiling"),)
     spikes = tuple(
         transform.spike(box, f"vision-spike-{index}") for index, box in enumerate(geometry.spikes)
     )

@@ -315,7 +315,7 @@ class PipeWirePortalFrameSource:
             self._validate_crop(grant.stream)
             self._remote_fd = grant.remote_fd
             self._stream = grant.stream
-            self._frame_bytes = grant.stream.width * grant.stream.height * 3
+            self._frame_bytes = self._region.width * self._region.height * 3
             self._process = self._start_gstreamer(grant)
         except Exception:
             self.close()
@@ -362,11 +362,23 @@ class PipeWirePortalFrameSource:
             f"fd={grant.remote_fd}",
             f"path={grant.stream.node_id}",
             "!",
+            "queue",
+            "max-size-buffers=1",
+            "max-size-bytes=0",
+            "max-size-time=0",
+            "leaky=downstream",
+            "!",
             "videoconvert",
+            "!",
+            "videocrop",
+            f"left={self._region.left}",
+            f"top={self._region.top}",
+            f"right={grant.stream.width - self._region.left - self._region.width}",
+            f"bottom={grant.stream.height - self._region.top - self._region.height}",
             "!",
             (
                 "video/x-raw,format=RGB,"
-                f"width={grant.stream.width},height={grant.stream.height}"
+                f"width={self._region.width},height={self._region.height}"
             ),
             "!",
             "fdsink",
@@ -377,7 +389,7 @@ class PipeWirePortalFrameSource:
                 command,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 bufsize=0,
                 pass_fds=(grant.remote_fd,),
             )
@@ -389,18 +401,20 @@ class PipeWirePortalFrameSource:
             raise CaptureUnavailable("portal capture source is closed")
         started = monotonic_ns()
         raw = self._read_exact(self._frame_bytes)
-        image: RgbImage = np.frombuffer(raw, dtype=np.uint8).reshape(
-            self._stream.height, self._stream.width, 3
-        )
-        top = self._region.top
-        left = self._region.left
-        cropped = np.ascontiguousarray(
-            image[top : top + self._region.height, left : left + self._region.width]
+        image: RgbImage = np.ascontiguousarray(
+            np.frombuffer(raw, dtype=np.uint8).reshape(
+                self._region.height,
+                self._region.width,
+                3,
+            )
         )
         timestamp = monotonic_ns()
         if self._timestamps and timestamp <= self._timestamps[-1]:
             raise CaptureUnavailable("portal frame timestamps are not monotonic")
-        frame = CapturedFrame(cropped, timestamp, self._sequence, self._region)
+        if self._timestamps:
+            elapsed = (timestamp - self._timestamps[-1]) / 1_000_000_000.0
+            self._dropped += max(0, round(elapsed * self._target_fps) - 1)
+        frame = CapturedFrame(image, timestamp, self._sequence, self._region)
         self._sequence += 1
         self._timestamps.append(timestamp)
         self._latencies.append((timestamp - started) / 1_000_000.0)
@@ -409,7 +423,7 @@ class PipeWirePortalFrameSource:
     def _read_exact(self, size: int) -> bytes:
         if self._process is None or self._process.stdout is None:
             raise CaptureUnavailable("PipeWire reader is unavailable")
-        chunks: list[bytes] = []
+        buffer = bytearray()
         remaining = size
         while remaining:
             if self._process.poll() is not None:
@@ -422,9 +436,9 @@ class PipeWirePortalFrameSource:
             chunk = os.read(self._process.stdout.fileno(), remaining)
             if not chunk:
                 raise CaptureUnavailable("portal PipeWire stream ended")
-            chunks.append(chunk)
+            buffer.extend(chunk)
             remaining -= len(chunk)
-        return b"".join(chunks)
+        return bytes(buffer)
 
     def close(self) -> None:
         if self._closed:
@@ -433,17 +447,24 @@ class PipeWirePortalFrameSource:
         process = self._process
         self._process = None
         if process is not None:
-            process.terminate()
+            with suppress(OSError):
+                process.terminate()
             try:
                 process.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=2.0)
+                with suppress(OSError):
+                    process.kill()
+                with suppress(OSError, subprocess.TimeoutExpired):
+                    process.wait(timeout=2.0)
             if process.stdout is not None:
-                process.stdout.close()
+                with suppress(OSError):
+                    process.stdout.close()
             if process.stderr is not None:
-                process.stderr.close()
+                with suppress(OSError):
+                    process.stderr.close()
         if self._remote_fd is not None:
-            os.close(self._remote_fd)
+            with suppress(OSError):
+                os.close(self._remote_fd)
             self._remote_fd = None
-        self._portal.close()
+        with suppress(Exception):
+            self._portal.close()

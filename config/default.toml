@@ -1,3 +1,5 @@
+schema_version = 1
+
 [capture]
 left = 0
 top = 0
@@ -16,6 +18,17 @@ emergency_stop_key = "f12"
 pause_key = "f10"
 manual_override = true
 action_interval_ms = 16.667
+backend = "portal"
+action_key = "space"
+tap_duration_ms = 35.0
+maximum_hold_ms = 250.0
+maximum_actions_per_second = 8
+heartbeat_timeout_ms = 250.0
+maximum_session_seconds = 1800.0
+arming_timeout_seconds = 30.0
+maximum_attempts = 25
+auto_retry = true
+retry_cooldown_seconds = 1.0
 
 [visualization]
 enabled = true
@@ -44,7 +57,7 @@ cube_color = [255, 60, 200]
 ship_color = [20, 230, 255]
 
 [calibration]
-enabled = false
+enabled = true
 minimum_observations = 30
 learning_rate = 0.05
 

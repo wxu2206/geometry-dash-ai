@@ -210,8 +210,19 @@ def swept_spike_collision_time(spike: Spike, start: AABB, end: AABB) -> float | 
     """Return the first normalized collision time for a linearly swept AABB."""
     if start.width != end.width or start.height != end.height:
         raise ValueError("swept AABBs must have identical dimensions")
+    start_center = start.center
+    end_center = end.center
+    half_width = start.width / 2.0
+    half_height = start.height / 2.0
+    if (
+        max(start_center[0], end_center[0]) < spike.x - half_width
+        or min(start_center[0], end_center[0]) > spike.x + spike.width + half_width
+        or max(start_center[1], end_center[1]) < spike.base_y - half_height
+        or min(start_center[1], end_center[1]) > spike.base_y + spike.height + half_height
+    ):
+        return None
     polygon = _inflated_spike(spike, start.width, start.height)
-    return _segment_polygon_entry(start.center, end.center, polygon)
+    return _segment_polygon_entry(start_center, end_center, polygon)
 
 
 def aabb_distance(first: AABB, second: AABB) -> float:

@@ -87,17 +87,15 @@ class PortalCaptureTests(unittest.TestCase):
     def test_live_adapter_crops_the_approved_source_and_releases_resources(self) -> None:
         grant, remote_fd = _grant()
         data_read, data_write = os.pipe()
-        raw = np.arange(4 * 3 * 3, dtype=np.uint8).tobytes()
+        expected = np.arange(2 * 2 * 3, dtype=np.uint8).reshape(2, 2, 3)
+        raw = expected.tobytes()
         os.write(data_write, raw)
         os.close(data_write)
         portal = _FakePortal(grant)
         process = _FakeProcess(data_read)
         source = _TestPortalSource(CaptureRegion(1, 1, 2, 2), portal=portal, process=process)
         result = source.capture_once()
-        np.testing.assert_array_equal(
-            result.image,
-            np.arange(4 * 3 * 3, dtype=np.uint8).reshape(3, 4, 3)[1:3, 1:3],
-        )
+        np.testing.assert_array_equal(result.image, expected)
         source.close()
         self.assertTrue(portal.closed)
         self.assertTrue(process.terminated)

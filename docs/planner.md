@@ -123,13 +123,17 @@ input to a simulated trajectory in the reconstructed local collision map.
 
 ## Ship Model-Predictive Control
 
-Generate short sequences such as release, hold, hold→release, release→hold,
+The alpha implements a separate `ShipState`, `ShipPhysicsParameters`, bounded
+trajectory simulator, and `plan_ship_action`. It generates short sequences such as release, hold, hold→release, release→hold,
 hold→hold→release, and release→release→hold. Simulate continuously over each
 segment and re-plan every fresh state.
 
 Score collision probability first, followed by floor/ceiling/obstacle clearance,
 safe corridor centerline, smoothness, switching cost, and uncertainty. Centerline
 preference must not overpower a collision-free path around local obstacles.
+The application displays this plan in Shadow without input and executes only its
+first segment after the independent permission, arming, readiness, and deadline
+gates succeed.
 
 ## Death Forecast
 
@@ -143,6 +147,7 @@ as a confident action.
 Synthetic tests cover isolated and grouped spikes, spike grazing, blocks, gaps,
 safe and unsafe landings, continuous collision/tunneling regressions, delayed
 input, invalid numbers and dimensions, resource limits, timing fragility, and
-cases with no safe trajectory. Ship corridor and portal-planner tests remain a
-Phase 5 concern. Planner outputs are deterministic for a fixed snapshot and
-configuration.
+cases with no safe trajectory. Ship tests cover rise/fall response, floor/solid
+collision, finite validation, candidate bounds, deterministic decisions, and
+hysteresis. The synthetic alpha test exercises cube → ship → cube controller
+routing through rendered pixels.

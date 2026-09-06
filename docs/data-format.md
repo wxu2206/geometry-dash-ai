@@ -10,15 +10,16 @@ and ignored by Git.
 
 ```text
 data/
-  runs/<run-id>/             Telemetry and run summaries
+  runs/history.jsonl         Bounded compact attempt summaries (5 MiB cap)
+  runs/<name>.jsonl          Explicit shadow decision logs
   frames/<run-id>/           Sampled and event-preserved frames
   models/                    Generated model artifacts
   calibration/              Machine-local fitted parameters
 ```
 
-Run IDs should use a UTC timestamp plus random suffix, not personal information.
-Writers create directories lazily. Retention and storage budgets will be added
-before continuous live recording.
+Writers create directories lazily. Run history loads at most 500 records and
+compacts at its byte cap. Explicit shadow logs are user-requested and should be
+rotated manually; ordinary application history is bounded automatically.
 
 ## Telemetry JSON Lines
 
@@ -41,6 +42,9 @@ Planned event names include `attempt_started`, `frame_sample`, `player_state`,
 `death_detected`, `attempt_summary`, `calibration_updated`, and
 `level_completed`.
 
+`data/calibration/physics.json` is versioned JSON containing validated current
+and last-known-good cube parameters. It is owner-only and never uses pickle.
+
 ## Death Event Bundle
 
 An attempt summary links recent player states, geometry snapshots, action history,
@@ -56,4 +60,3 @@ arrays or models. Migrations create new files instead of silently rewriting raw
 runs. Treat frames and logs as sensitive: crop capture regions carefully, avoid
 desktop notifications, and inspect artifacts before sharing. Never deserialize
 untrusted executable formats.
-

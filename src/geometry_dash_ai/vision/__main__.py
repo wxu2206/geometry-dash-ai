@@ -43,10 +43,15 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="explicit local-only JSONL path relative to data/runs (never stores frames)",
     )
+    parser.add_argument(
+        "--shadow",
+        action="store_true",
+        help="evaluate and display planner recommendations without sending input",
+    )
     return parser
 
 
-def _pipeline(config: AppConfig) -> PerceptionPipeline:
+def build_pipeline(config: AppConfig) -> PerceptionPipeline:
     return PerceptionPipeline(
         ClassicalPlayerDetector(
             PlayerDetectorConfig(
@@ -100,10 +105,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"preview unavailable: {exc}")
     writer = ShadowTelemetryWriter(args.shadow_log) if args.shadow_log is not None else None
     if writer is None:
-        metrics, snapshot = _run(source, config, viewer, args.frames, None)
+        metrics, snapshot = _run(source, config, viewer, args.frames, None, args.shadow)
     else:
         with writer:
-            metrics, snapshot = _run(source, config, viewer, args.frames, writer.write)
+            metrics, snapshot = _run(
+                source,
+                config,
+                viewer,
+                args.frames,
+                writer.write,
+                True,
+            )
     if snapshot is not None:
         capture_rate = f"{metrics.capture_fps:.2f}"
         print(
@@ -119,16 +131,17 @@ def _run(
     viewer: TkDebugViewer | None,
     frames: int | None,
     telemetry: Any,
+    shadow_mode: bool,
 ) -> tuple[Any, Any]:
     return ObserveOnlyRuntime(
         source,
-        _pipeline(config),
+        build_pipeline(config),
         config.capture.target_fps,
         DiagnosticFrameBuffer(config.recording.maximum_recent_frames)
         if config.recording.enabled
         else None,
         viewer,
-        shadow_mode=True,
+        shadow_mode=shadow_mode,
         telemetry=telemetry,
     ).run(frames)
 
