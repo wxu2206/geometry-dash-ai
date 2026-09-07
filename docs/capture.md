@@ -90,8 +90,8 @@ After one validated frame, `--write-local` writes only `config/local.toml`.
 Refusing symlinks and paths outside that fixed destination prevents arbitrary
 calibration writes. `--sample-player LEFT TOP WIDTH HEIGHT` samples a manually
 chosen saturated patch and writes a robust median RGB signature; verify it in
-the preview before relying on it. A preview is optional and uses a local Tk
-window only.
+the main local browser preview before relying on it. The legacy standalone
+`--preview` option is optional and needs Tk support, but the main app does not.
 
 ## Recording and Privacy
 

@@ -14,7 +14,9 @@ geometry-dash-ai
 ```
 
 Doctor is read-only. Demo uses generated pixels and mock permission/input; it
-does not open or control Geometry Dash.
+does not open or control Geometry Dash. The main command prints a random-port
+`http://127.0.0.1:PORT/` URL; open that URL in a local browser. It does not use
+Tk, bind to the network, open a browser automatically, or load external assets.
 
 ## First launch
 

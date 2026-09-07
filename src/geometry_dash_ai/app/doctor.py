@@ -47,6 +47,19 @@ def run_doctor(project_root: Path) -> tuple[DoctorCheck, ...]:
             "active" if sys.prefix != sys.base_prefix else "not detected",
         )
     )
+    tkinter_available = (
+        importlib.util.find_spec("tkinter") is not None
+        and importlib.util.find_spec("_tkinter") is not None
+    )
+    checks.append(
+        DoctorCheck(
+            "Tk support",
+            CheckLevel.PASS,
+            "available but unused by the main loopback UI"
+            if tkinter_available
+            else "not installed; the main loopback UI does not require Tk",
+        )
+    )
     wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland"
     kde = "KDE" in os.environ.get("XDG_CURRENT_DESKTOP", "")
     checks.append(

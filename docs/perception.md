@@ -75,6 +75,7 @@ confidence are sufficient; ship predictions remain unavailable rather than guess
 ## Debug View
 
 `render_debug_overlay` draws player, floor, solid, spike, and ceiling boxes in
-different colors. `TkDebugViewer` can show that local overlay with mode,
-velocity, scroll, FPS, and confidence status. It has no global keyboard/mouse
-hooks and closes with the observation runtime.
+different colors. The main loopback-only browser UI displays that overlay with
+mode, velocity, scroll, FPS, and confidence status. The legacy standalone
+`TkDebugViewer` is optional; it has no global keyboard/mouse hooks and is not a
+main-app dependency.

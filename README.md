@@ -55,7 +55,7 @@ typing, clipboard, or generic automation API exists.
 
 ## What works
 
-- Explicit application state machine and responsive Tk engineering dashboard.
+- Explicit application state machine and responsive loopback-only browser dashboard.
 - ScreenCast portal capture on the user session bus, one user-selected source,
   ephemeral PipeWire FD, fixed local GStreamer reader, bounded crop and cleanup.
 - RGB/chroma player signatures, component shape/size checks, temporal prior,

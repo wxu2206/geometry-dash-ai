@@ -121,8 +121,9 @@ storage delays must never block emergency stop or input release.
 
 The `app` package owns explicit states from setup through capture, Observe,
 Shadow, permission, arming, Running, pause/death/retry/completion, degradation,
-and shutdown. Tk only displays snapshots and invokes state transitions; capture,
-perception, calibration, planning, and control work run off its event loop. A
+and shutdown. A standard-library, loopback-only browser UI displays snapshots
+and invokes fixed state transitions; capture, perception, calibration, planning,
+and control work run off its request workers. A
 bounded `deque(maxlen=1)` gives latest-frame semantics. All Running paths pass
 through the readiness gate and `GuardedActionController`; exceptions release the
 action before state degradation. A local `flock` prevents two live controllers.
