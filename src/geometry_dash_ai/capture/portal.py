@@ -33,6 +33,13 @@ from geometry_dash_ai.capture.models import (
     validate_rate,
 )
 from geometry_dash_ai.capture.source import CaptureUnavailable
+from geometry_dash_ai.portal_transport import (
+    PortalTransport,
+    PortalTransportError,
+    PortalTransportTimeout,
+    unwrap_portal_results,
+    validate_object_path,
+)
 
 _PORTAL_BUS = "org.freedesktop.portal.Desktop"
 _PORTAL_PATH = "/org/freedesktop/portal/desktop"
@@ -165,6 +172,7 @@ class KdeScreenCastPortal:
         self._timeout_seconds = timeout_seconds
         self._loop: asyncio.AbstractEventLoop | None = None
         self._bus: Any | None = None
+        self._transport: PortalTransport | None = None
         self._session_path: str | None = None
         self._closed = False
 
@@ -191,30 +199,28 @@ class KdeScreenCastPortal:
         except Exception as exc:
             self.close()
             raise CaptureUnavailable(
-                "could not contact the user ScreenCast portal; "
+                "could not connect to the user ScreenCast portal; "
                 "confirm an active KDE Wayland session"
             ) from exc
 
     async def _request_async(self, message_bus: Any, bus_type: Any, variant: Any) -> PortalGrant:
         self._bus = await message_bus(bus_type=bus_type.SESSION, negotiate_unix_fd=True).connect()
-        root = await self._bus.introspect(_PORTAL_BUS, _PORTAL_PATH)
-        portal = self._bus.get_proxy_object(_PORTAL_BUS, _PORTAL_PATH, root)
-        screencast = portal.get_interface(_SCREENCAST_IFACE)
-        session_path = await self._await_request(
-            await screencast.call_create_session(
+        try:
+            if self._loop is None:
+                raise CaptureUnavailable("ScreenCast portal event loop was not initialized")
+            self._transport = PortalTransport(self._bus, self._loop, self._timeout_seconds)
+            created = await self._transport.screencast_create_session(
                 {
                     "handle_token": variant("s", "geometry_dash_capture"),
                     "session_handle_token": variant("s", "geometry_dash_session"),
                 }
             )
-        )
-        raw_session = session_path.get("session_handle")
-        if not isinstance(raw_session, str) or not raw_session.startswith("/"):
-            raise CaptureUnavailable("portal did not return a valid capture session")
-        self._session_path = raw_session
-        await self._await_request(
-            await screencast.call_select_sources(
-                raw_session,
+            session = parse_portal_response(
+                created.code, unwrap_portal_results(created)
+            ).get("session_handle")
+            self._session_path = validate_object_path(session, description="ScreenCast session")
+            selected = await self._transport.screencast_select_sources(
+                self._session_path,
                 {
                     "handle_token": variant("s", "geometry_dash_sources"),
                     "types": variant("u", _SOURCE_MONITOR | _SOURCE_WINDOW),
@@ -222,53 +228,29 @@ class KdeScreenCastPortal:
                     "cursor_mode": variant("u", 1),
                 },
             )
-        )
-        started = await self._await_request(
-            await screencast.call_start(
-                raw_session,
-                "",
+            parse_portal_response(selected.code, unwrap_portal_results(selected))
+            started = await self._transport.screencast_start(
+                self._session_path,
                 {"handle_token": variant("s", "geometry_dash_start")},
             )
-        )
-        stream = parse_portal_streams(started.get("streams"))
-        remote_fd = await screencast.call_open_pipe_wire_remote(raw_session, {})
-        return PortalGrant(remote_fd, stream)
-
-    async def _await_request(self, request_path: object) -> Mapping[str, object]:
-        if not isinstance(request_path, str) or not request_path.startswith("/"):
-            raise CaptureUnavailable("portal returned an invalid request handle")
-        if self._bus is None:
-            raise CaptureUnavailable("portal bus was not initialized")
-        introspection = await self._bus.introspect(_PORTAL_BUS, request_path)
-        request = self._bus.get_proxy_object(_PORTAL_BUS, request_path, introspection)
-        iface = request.get_interface(_REQUEST_IFACE)
-        future: asyncio.Future[Mapping[str, object]] = self._loop_future()
-
-        def response(code: object, results: object) -> None:
-            if not future.done():
-                try:
-                    future.set_result(parse_portal_response(code, results))
-                except CaptureUnavailable as exc:
-                    future.set_exception(exc)
-
-        iface.on_response(response)
-        try:
-            return await asyncio.wait_for(future, timeout=self._timeout_seconds)
-        except TimeoutError as exc:
-            raise CaptureUnavailable("portal capture request timed out") from exc
-        finally:
-            iface.off_response(response)
-
-    def _loop_future(self) -> asyncio.Future[Mapping[str, object]]:
-        if self._loop is None:
-            raise CaptureUnavailable("portal event loop was not initialized")
-        return self._loop.create_future()
+            start_results = parse_portal_response(started.code, unwrap_portal_results(started))
+            stream = parse_portal_streams(start_results.get("streams"))
+            remote_fd = await self._transport.open_pipewire_remote(self._session_path)
+            return PortalGrant(remote_fd, stream)
+        except PortalTransportTimeout as exc:
+            raise CaptureUnavailable("ScreenCast portal response timed out") from exc
+        except PortalTransportError as exc:
+            raise CaptureUnavailable(f"ScreenCast portal transport failed: {exc}") from exc
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        if self._loop is not None and self._bus is not None and self._session_path is not None:
+        if (
+            self._loop is not None
+            and self._transport is not None
+            and self._session_path is not None
+        ):
             with suppress(Exception):
                 self._loop.run_until_complete(self._close_session())
         if self._bus is not None:
@@ -276,15 +258,14 @@ class KdeScreenCastPortal:
         if self._loop is not None:
             self._loop.close()
         self._session_path = None
+        self._transport = None
         self._bus = None
         self._loop = None
 
     async def _close_session(self) -> None:
-        if self._bus is None or self._session_path is None:
+        if self._transport is None or self._session_path is None:
             return
-        introspection = await self._bus.introspect(_PORTAL_BUS, self._session_path)
-        session = self._bus.get_proxy_object(_PORTAL_BUS, self._session_path, introspection)
-        await session.get_interface(_SESSION_IFACE).call_close()
+        await self._transport.close_session(self._session_path)
 
 
 class PipeWirePortalFrameSource:

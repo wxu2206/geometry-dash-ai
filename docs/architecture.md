@@ -35,7 +35,8 @@ flowchart TD
 
 - `capture`: owns region-bound frame acquisition, monotonic timestamps, measured
   FPS/latency, capture-region selection, and a latest-only bounded interface.
-  The KDE backend uses only fixed user-session ScreenCast portal methods, then
+  The KDE backend uses only fixed user-session ScreenCast portal methods through
+  a low-level no-introspection transport, then
   one ephemeral PipeWire FD with local GStreamer. It validates metadata, crop,
   and frame allocations and closes process/FD/session resources; mss remains an
   optional fallback and neither backend interprets pixels.

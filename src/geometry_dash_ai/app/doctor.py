@@ -14,6 +14,7 @@ from pathlib import Path
 
 from geometry_dash_ai.config.settings import ConfigError, load_config
 from geometry_dash_ai.learning.calibration import CalibrationInvalid, CalibrationStore
+from geometry_dash_ai.portal_transport import low_level_portal_ping
 
 
 class CheckLevel(StrEnum):
@@ -70,13 +71,29 @@ def run_doctor(project_root: Path) -> tuple[DoctorCheck, ...]:
         )
     )
     portal_signals = bool(os.environ.get("DBUS_SESSION_BUS_ADDRESS"))
+    portal_reachable = portal_signals and low_level_portal_ping()
     checks.append(
         DoctorCheck(
             "User portal",
-            CheckLevel.PASS if portal_signals else CheckLevel.FAIL,
-            "session bus configured; permission is requested only when starting capture/control"
-            if portal_signals
-            else "DBUS_SESSION_BUS_ADDRESS is missing",
+            CheckLevel.PASS if portal_reachable else CheckLevel.WARN,
+            "org.freedesktop.portal.Desktop reachable through low-level D-Bus"
+            if portal_reachable
+            else (
+                "session bus is configured but portal Ping was unavailable"
+                if portal_signals
+                else "DBUS_SESSION_BUS_ADDRESS is missing"
+            ),
+        )
+    )
+    checks.append(
+        DoctorCheck(
+            "ScreenCast transport",
+            CheckLevel.PASS
+            if importlib.util.find_spec("dbus_next") is not None
+            else CheckLevel.WARN,
+            "low-level fixed D-Bus transport available; no XML introspection"
+            if importlib.util.find_spec("dbus_next") is not None
+            else "dbus-next is unavailable; install the repository live extra in .venv",
         )
     )
     gst = shutil.which("gst-launch-1.0") is not None and _pipewire_plugin_available()
@@ -98,12 +115,12 @@ def run_doctor(project_root: Path) -> tuple[DoctorCheck, ...]:
                 "available" if available else "install the repository live extra in .venv",
             )
         )
-    control_available = portal_signals and importlib.util.find_spec("dbus_next") is not None
+    control_available = portal_reachable and importlib.util.find_spec("dbus_next") is not None
     checks.append(
         DoctorCheck(
             "RemoteDesktop control",
             CheckLevel.PASS if control_available else CheckLevel.WARN,
-            "keyboard-only portal backend implemented; permission not requested by doctor"
+            "keyboard-only low-level portal backend available; permission not requested by doctor"
             if control_available
             else "user-session bus or dbus-next unavailable; Observe remains usable",
         )

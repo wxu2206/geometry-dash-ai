@@ -30,6 +30,13 @@ each run KDE displays its usual selection dialog; choose the Geometry Dash
 window where offered, or choose one monitor. The app cannot enumerate windows,
 preselect a source, remember a grant, or weaken compositor policy.
 
+The implementation sends fixed low-level D-Bus messages rather than asking
+`dbus-next` to parse the portal's whole introspection XML. This avoids KDE portal
+properties that are valid for the portal but rejected by some `dbus-next`
+versions. It waits only for the matching `Request.Response` signal, validates
+the response and returned FD handle, and removes its signal handler/match rule
+after every request.
+
 After approval, the portal returns one ephemeral PipeWire node and FD. The
 source passes that FD only to local `gst-launch-1.0 pipewiresrc`, uses a leaky
 one-frame queue, converts to RGB, and applies `videocrop` before pixels enter the

@@ -8,6 +8,11 @@ a fixed local GStreamer pipeline with `shell=False`. A leaky one-frame queue
 drops stale frames, and `videocrop` removes non-game monitor pixels before the
 Python pipe whenever a crop is configured.
 
+The portal transport does not use full object XML introspection. It uses fixed,
+typed low-level D-Bus messages and waits for the exact request-path
+`org.freedesktop.portal.Request.Response` signal. This works around portal XML
+members that some `dbus-next` versions reject before ScreenCast is reached.
+
 Live input is separately requested through `org.freedesktop.portal.RemoteDesktop`:
 CreateSession, SelectDevices with the keyboard bit only, Start, then
 NotifyKeyboardKeysym for Space press/release. It is unavailable before permission,
