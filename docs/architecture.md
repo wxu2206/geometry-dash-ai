@@ -37,8 +37,9 @@ flowchart TD
   FPS/latency, capture-region selection, and a latest-only bounded interface.
   The KDE backend uses only fixed user-session ScreenCast portal methods through
   a low-level no-introspection transport, then
-  one ephemeral PipeWire FD with local GStreamer. It validates metadata, crop,
-  and frame allocations and closes process/FD/session resources; mss remains an
+  one ephemeral PipeWire FD with local GStreamer. It treats optional portal
+  stream size as metadata, probes negotiated PipeWire caps before validating the
+  crop and frame allocations, and closes process/FD/session resources; mss remains an
   optional fallback and neither backend interprets pixels.
 - `vision`: turns a validated frame into uncertain player and geometry detections
   using bounded classical vision, then converts screen geometry to player-relative

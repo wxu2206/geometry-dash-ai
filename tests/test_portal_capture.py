@@ -17,6 +17,7 @@ from geometry_dash_ai.capture import (
     parse_portal_response,
     parse_portal_streams,
 )
+from geometry_dash_ai.capture.portal import _parse_pipewire_caps
 
 
 class _FakePortal:
@@ -57,7 +58,17 @@ class _TestPortalSource(PipeWirePortalFrameSource):
         self._test_process = process
         super().__init__(*args, **kwargs)
 
-    def _start_gstreamer(self, grant: PortalGrant) -> _FakeProcess:
+    def _probe_source_dimensions(self, grant: PortalGrant) -> tuple[int, int]:
+        width = grant.stream.reported_width
+        height = grant.stream.reported_height
+        if width is None or height is None:
+            return 4, 3
+        return width, height
+
+    def _start_gstreamer(
+        self, grant: PortalGrant, source_width: int, source_height: int
+    ) -> _FakeProcess:
+        del grant, source_width, source_height
         return self._test_process
 
 
@@ -83,6 +94,48 @@ class PortalCaptureTests(unittest.TestCase):
             parse_portal_streams([])
         with self.assertRaisesRegex(CaptureUnavailable, "unsafe"):
             parse_portal_streams([(3, {"size": (8_000, 1)})])
+        with self.assertRaisesRegex(CaptureUnavailable, "unsafe"):
+            parse_portal_streams([(3, {"size": (-1, 1)})])
+        with self.assertRaisesRegex(CaptureUnavailable, "unsafe"):
+            parse_portal_streams([(3, {"size": "not-a-size"})])
+
+    def test_stream_parser_accepts_missing_optional_size_and_source_metadata(self) -> None:
+        window = parse_portal_streams(
+            [(3, {"source_type": 2, "mapping_id": "window-1", "pipewire_serial": 9})]
+        )
+        self.assertEqual(window.node_id, 3)
+        self.assertIsNone(window.reported_width)
+        self.assertIsNone(window.reported_height)
+        self.assertEqual(window.source_type, 2)
+        self.assertEqual(window.mapping_id, "window-1")
+        self.assertEqual(window.pipewire_serial, 9)
+        monitor = parse_portal_streams([(4, {"source_type": 1, "size": (4, 3)})])
+        self.assertEqual((monitor.reported_width, monitor.reported_height), (4, 3))
+
+    def test_unknown_portal_size_is_safely_sized_from_pipewire_before_crop(self) -> None:
+        remote_fd, unused = os.pipe()
+        os.close(unused)
+        grant = PortalGrant(remote_fd, PortalStream(7))
+        data_read, data_write = os.pipe()
+        expected = np.arange(2 * 2 * 3, dtype=np.uint8).reshape(2, 2, 3)
+        os.write(data_write, expected.tobytes())
+        os.close(data_write)
+        source = _TestPortalSource(
+            CaptureRegion(1, 1, 2, 2),
+            portal=_FakePortal(grant),
+            process=_FakeProcess(data_read),
+        )
+        self.assertEqual(source.region, CaptureRegion(1, 1, 2, 2))
+        np.testing.assert_array_equal(source.capture_once().image, expected)
+        source.close()
+
+    def test_caps_dimensions_are_validated_independently_of_portal_metadata(self) -> None:
+        caps = (
+            b"GstPad:src: caps = video/x-raw, width=(int)1152, height=(int)648, "
+            b"format=(string)RGB"
+        )
+        self.assertEqual(_parse_pipewire_caps(caps), (1152, 648))
+        self.assertIsNone(_parse_pipewire_caps(b"video/x-raw, format=(string)RGB"))
 
     def test_live_adapter_crops_the_approved_source_and_releases_resources(self) -> None:
         grant, remote_fd = _grant()
@@ -116,7 +169,7 @@ class PortalCaptureTests(unittest.TestCase):
         invalid_grant, _ = _grant()
         data_read, data_write = os.pipe()
         os.close(data_write)
-        with self.assertRaisesRegex(CaptureUnavailable, "crop exceeds"):
+        with self.assertRaisesRegex(CaptureUnavailable, "exceeds selected source 4x3"):
             _TestPortalSource(
                 CaptureRegion(3, 0, 2, 2),
                 portal=_FakePortal(invalid_grant),

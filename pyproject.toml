@@ -17,6 +17,7 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "dbus-next>=0.2.3,<0.3",
   "numpy>=2,<2.3; python_version < '3.14'",
   "numpy>=2,<3; python_version >= '3.14'",
 ]
@@ -30,7 +31,7 @@ dev = [
 # dbus-next is pure Python.  It drives the *user-approved* ScreenCast portal;
 # GStreamer/PipeWire remain existing user-session capabilities, not packages we
 # install or configure on the host.
-live = ["dbus-next>=0.2.3,<0.3", "mss>=10,<11"]
+live = ["mss>=10,<11"]
 
 [project.scripts]
 geometry-dash-ai = "geometry_dash_ai.app.cli:main"

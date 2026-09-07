@@ -37,13 +37,18 @@ versions. It waits only for the matching `Request.Response` signal, validates
 the response and returned FD handle, and removes its signal handler/match rule
 after every request.
 
-After approval, the portal returns one ephemeral PipeWire node and FD. The
-source passes that FD only to local `gst-launch-1.0 pipewiresrc`, uses a leaky
-one-frame queue, converts to RGB, and applies `videocrop` before pixels enter the
-Python pipe. Python validates exactly the configured `[capture]` dimensions.
+After approval, the portal returns one ephemeral PipeWire node and FD. Its
+optional `size` field is compositor-coordinate metadata, not a raw-video buffer
+contract. The source therefore makes a short, bounded local GStreamer caps probe
+on that approved node, validates the negotiated video dimensions, then passes the
+same FD only to local `gst-launch-1.0 pipewiresrc`. A leaky one-frame queue,
+RGB conversion, and `videocrop` are created only after the configured `[capture]`
+crop fits the negotiated source. The crop occurs before pixels enter the Python
+pipe.
 
-The `live` optional extra provides the small pure-Python portal client; the
-existing user session must already provide GStreamer’s PipeWire plugin:
+`dbus-next` is a normal pure-Python application dependency. The optional `live`
+extra adds `mss` for the legacy direct-capture fallback; the existing user session
+must already provide GStreamer’s PipeWire plugin:
 
 ```bash
 python -m pip install -e '.[dev,live]'

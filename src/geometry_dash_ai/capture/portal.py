@@ -9,7 +9,9 @@ needed here and passes no configurable DBus service, path, or method names.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import re
 import select
 import shutil
 import subprocess
@@ -19,7 +21,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from enum import IntEnum
 from time import monotonic_ns
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
 
@@ -52,6 +54,12 @@ _SOURCE_WINDOW = 2
 # inside that period so the supervising worker can release input on a vanished
 # PipeWire stream instead of waiting on a stalled pipe.
 _MAX_CAPTURE_LATENCY_SECONDS = 0.2
+_CAPS_PROBE_TIMEOUT_SECONDS = 5.0
+_MAX_CAPS_DIAGNOSTIC_BYTES = 65_536
+_CAPS_DIMENSIONS = re.compile(
+    rb"video/x-raw[^\n]*?width=\(int\)([0-9]+),\s*height=\(int\)([0-9]+)"
+)
+_LOG = logging.getLogger(__name__)
 
 
 class PortalResponseCode(IntEnum):
@@ -75,13 +83,20 @@ class PortalStream:
     """Validated metadata for exactly one user-selected PipeWire video node."""
 
     node_id: int
-    width: int
-    height: int
+    # ``size`` is optional portal metadata in compositor coordinates.  It is
+    # deliberately not used as the source of truth for PipeWire pixel buffers.
+    width: int | None = None
+    height: int | None = None
+    source_type: int | None = None
+    mapping_id: str | None = None
+    pipewire_serial: int | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.node_id, bool) or not isinstance(self.node_id, int) or self.node_id < 0:
             raise ValueError("portal node id is invalid")
-        if (
+        if (self.width is None) != (self.height is None):
+            raise ValueError("portal stream dimensions must both be known or both be unknown")
+        if self.width is not None and self.height is not None and (
             isinstance(self.width, bool)
             or isinstance(self.height, bool)
             or not isinstance(self.width, int)
@@ -91,6 +106,34 @@ class PortalStream:
             or self.width * self.height > MAX_CAPTURE_PIXELS
         ):
             raise ValueError("portal stream dimensions exceed capture bounds")
+        if self.source_type is not None and (
+            isinstance(self.source_type, bool)
+            or not isinstance(self.source_type, int)
+            or self.source_type not in {_SOURCE_MONITOR, _SOURCE_WINDOW}
+        ):
+            raise ValueError("portal stream source type is invalid")
+        if self.mapping_id is not None and (
+            not isinstance(self.mapping_id, str)
+            or len(self.mapping_id) > 512
+            or any(not character.isprintable() for character in self.mapping_id)
+        ):
+            raise ValueError("portal stream mapping id is invalid")
+        if self.pipewire_serial is not None and (
+            isinstance(self.pipewire_serial, bool)
+            or not isinstance(self.pipewire_serial, int)
+            or not 0 <= self.pipewire_serial <= 2**64 - 1
+        ):
+            raise ValueError("portal PipeWire serial is invalid")
+
+    @property
+    def reported_width(self) -> int | None:
+        """Return the optional compositor-coordinate width reported by the portal."""
+        return self.width
+
+    @property
+    def reported_height(self) -> int | None:
+        """Return the optional compositor-coordinate height reported by the portal."""
+        return self.height
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,11 +173,22 @@ def parse_portal_streams(value: object) -> PortalStream:
     if not isinstance(properties, Mapping):
         raise CaptureUnavailable("portal stream properties are invalid")
     size = _unwrap(properties.get("size"))
-    if not isinstance(size, (list, tuple)) or len(size) != 2:
-        raise CaptureUnavailable("portal stream has no valid size")
-    width, height = size
+    if "size" not in properties:
+        width: object = None
+        height: object = None
+    elif isinstance(size, (list, tuple)) and len(size) == 2:
+        width, height = size
+    else:
+        raise CaptureUnavailable("portal stream dimensions are unsafe")
     try:
-        return PortalStream(node_id, width, height)
+        return PortalStream(
+            node_id,
+            cast(int | None, width),
+            cast(int | None, height),
+            source_type=cast(int | None, _unwrap(properties.get("source_type"))),
+            mapping_id=cast(str | None, _unwrap(properties.get("mapping_id"))),
+            pipewire_serial=cast(int | None, _unwrap(properties.get("pipewire_serial"))),
+        )
     except ValueError as exc:
         raise CaptureUnavailable("portal stream dimensions are unsafe") from exc
 
@@ -295,12 +349,13 @@ class PipeWirePortalFrameSource:
         self._remote_fd: int | None = None
         try:
             grant = self._portal.request_capture()
-            self._region = region or CaptureRegion(0, 0, grant.stream.width, grant.stream.height)
-            self._validate_crop(grant.stream)
             self._remote_fd = grant.remote_fd
             self._stream = grant.stream
+            source_width, source_height = self._probe_source_dimensions(grant)
+            self._region = region or CaptureRegion(0, 0, source_width, source_height)
+            self._validate_crop(source_width, source_height)
             self._frame_bytes = self._region.width * self._region.height * 3
-            self._process = self._start_gstreamer(grant)
+            self._process = self._start_gstreamer(grant, source_width, source_height)
         except Exception:
             self.close()
             raise
@@ -328,17 +383,98 @@ class PipeWirePortalFrameSource:
     def maximum_recent_capture_latency_ms(self) -> float:
         return 0.0 if not self._latencies else max(self._latencies)
 
-    def _validate_crop(self, stream: PortalStream) -> None:
+    def _validate_crop(self, source_width: int, source_height: int) -> None:
         if self._region.left < 0 or self._region.top < 0:
             raise CaptureUnavailable(
                 "portal crop origin must be non-negative within the selected source"
             )
-        if self._region.left + self._region.width > stream.width:
-            raise CaptureUnavailable("configured crop exceeds the portal-selected source width")
-        if self._region.top + self._region.height > stream.height:
-            raise CaptureUnavailable("configured crop exceeds the portal-selected source height")
+        if self._region.left + self._region.width > source_width or (
+            self._region.top + self._region.height > source_height
+        ):
+            raise CaptureUnavailable(
+                "configured capture crop "
+                f"{self._region.width}x{self._region.height} exceeds selected source "
+                f"{source_width}x{source_height}"
+            )
 
-    def _start_gstreamer(self, grant: PortalGrant) -> subprocess.Popen[bytes]:
+    def _probe_source_dimensions(self, grant: PortalGrant) -> tuple[int, int]:
+        """Read bounded negotiated raw-video caps from the approved PipeWire node.
+
+        The ScreenCast ``size`` property is optional and uses compositor
+        coordinates, so it cannot safely size a raw PipeWire buffer.  A short,
+        fixed GStreamer probe obtains the source caps before the crop reader is
+        constructed.  It reuses the same approved portal FD and never retains
+        video frames or portal response data.
+        """
+        if grant.stream.reported_width is None:
+            _LOG.debug("Portal stream metadata omitted size; probing PipeWire caps")
+        command = [
+            "gst-launch-1.0",
+            "-v",
+            "pipewiresrc",
+            f"fd={grant.remote_fd}",
+            f"path={grant.stream.node_id}",
+            "!",
+            "queue",
+            "max-size-buffers=1",
+            "max-size-bytes=0",
+            "max-size-time=0",
+            "leaky=downstream",
+            "!",
+            "videoconvert",
+            "!",
+            "video/x-raw,format=RGB",
+            "!",
+            "fakesink",
+            "sync=false",
+        ]
+        try:
+            probe = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                pass_fds=(grant.remote_fd,),
+            )
+        except OSError as exc:
+            raise CaptureUnavailable("could not start local PipeWire caps probe") from exc
+        try:
+            dimensions = self._read_negotiated_dimensions(probe)
+        finally:
+            self._stop_process(probe)
+        _LOG.debug("PipeWire negotiated source size: %dx%d", *dimensions)
+        return dimensions
+
+    @staticmethod
+    def _read_negotiated_dimensions(process: subprocess.Popen[bytes]) -> tuple[int, int]:
+        if process.stderr is None:
+            raise CaptureUnavailable("PipeWire caps probe has no diagnostic stream")
+        diagnostic = bytearray()
+        deadline_ns = monotonic_ns() + int(_CAPS_PROBE_TIMEOUT_SECONDS * 1_000_000_000.0)
+        while monotonic_ns() < deadline_ns and len(diagnostic) < _MAX_CAPS_DIAGNOSTIC_BYTES:
+            dimensions = _parse_pipewire_caps(diagnostic)
+            if dimensions is not None:
+                return dimensions
+            if process.poll() is not None:
+                break
+            remaining = (deadline_ns - monotonic_ns()) / 1_000_000_000.0
+            ready, _, _ = select.select([process.stderr], [], [], max(0.0, remaining))
+            if not ready:
+                break
+            maximum_read = min(4_096, _MAX_CAPS_DIAGNOSTIC_BYTES - len(diagnostic))
+            chunk = os.read(process.stderr.fileno(), maximum_read)
+            if not chunk:
+                break
+            diagnostic.extend(chunk)
+        dimensions = _parse_pipewire_caps(diagnostic)
+        if dimensions is not None:
+            return dimensions
+        raise CaptureUnavailable("PipeWire stream did not negotiate video dimensions")
+
+    def _start_gstreamer(
+        self, grant: PortalGrant, source_width: int, source_height: int
+    ) -> subprocess.Popen[bytes]:
         command = [
             "gst-launch-1.0",
             "-q",
@@ -357,8 +493,8 @@ class PipeWirePortalFrameSource:
             "videocrop",
             f"left={self._region.left}",
             f"top={self._region.top}",
-            f"right={grant.stream.width - self._region.left - self._region.width}",
-            f"bottom={grant.stream.height - self._region.top - self._region.height}",
+            f"right={source_width - self._region.left - self._region.width}",
+            f"bottom={source_height - self._region.top - self._region.height}",
             "!",
             (
                 "video/x-raw,format=RGB,"
@@ -435,24 +571,47 @@ class PipeWirePortalFrameSource:
         process = self._process
         self._process = None
         if process is not None:
-            with suppress(OSError):
-                process.terminate()
-            try:
-                process.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                with suppress(OSError):
-                    process.kill()
-                with suppress(OSError, subprocess.TimeoutExpired):
-                    process.wait(timeout=2.0)
-            if process.stdout is not None:
-                with suppress(OSError):
-                    process.stdout.close()
-            if process.stderr is not None:
-                with suppress(OSError):
-                    process.stderr.close()
+            self._stop_process(process)
         if self._remote_fd is not None:
             with suppress(OSError):
                 os.close(self._remote_fd)
             self._remote_fd = None
         with suppress(Exception):
             self._portal.close()
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen[bytes]) -> None:
+        with suppress(OSError):
+            process.terminate()
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            with suppress(OSError):
+                process.kill()
+            with suppress(OSError, subprocess.TimeoutExpired):
+                process.wait(timeout=2.0)
+        if process.stdout is not None:
+            with suppress(OSError):
+                process.stdout.close()
+        if process.stderr is not None:
+            with suppress(OSError):
+                process.stderr.close()
+
+
+def _validated_pipewire_dimensions(width_bytes: bytes, height_bytes: bytes) -> tuple[int, int]:
+    """Validate dimensions parsed from bounded, fixed GStreamer diagnostics."""
+    try:
+        width = int(width_bytes)
+        height = int(height_bytes)
+        PortalStream(0, width, height)
+    except (TypeError, ValueError) as exc:
+        raise CaptureUnavailable("PipeWire negotiated unsafe video dimensions") from exc
+    return width, height
+
+
+def _parse_pipewire_caps(diagnostic: bytes | bytearray) -> tuple[int, int] | None:
+    """Extract bounded raw-video dimensions from fixed GStreamer ``-v`` output."""
+    match = _CAPS_DIMENSIONS.search(diagnostic)
+    if match is None:
+        return None
+    return _validated_pipewire_dimensions(match.group(1), match.group(2))

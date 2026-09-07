@@ -3,10 +3,13 @@
 The application never bypasses KDE capture or input policy. Screen capture calls
 only the user-session `org.freedesktop.portal.ScreenCast` flow: CreateSession,
 SelectSources for exactly one window or monitor, Start, and OpenPipeWireRemote.
-KDE owns the consent dialog. The returned PipeWire FD is ephemeral and passed to
-a fixed local GStreamer pipeline with `shell=False`. A leaky one-frame queue
-drops stale frames, and `videocrop` removes non-game monitor pixels before the
-Python pipe whenever a crop is configured.
+KDE owns the consent dialog. The returned PipeWire FD is ephemeral. Because the
+portal's optional `size` property is compositor-coordinate metadata, a fixed,
+bounded local GStreamer caps probe first discovers the actual video dimensions.
+The reader validates the configured crop against those dimensions before starting
+its fixed `shell=False` pipeline. A leaky one-frame queue drops stale frames, and
+`videocrop` removes non-game monitor pixels before the Python pipe whenever a
+crop is configured.
 
 The portal transport does not use full object XML introspection. It uses fixed,
 typed low-level D-Bus messages and waits for the exact request-path
