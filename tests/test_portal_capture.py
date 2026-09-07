@@ -123,6 +123,22 @@ class PortalCaptureTests(unittest.TestCase):
                 process=_FakeProcess(data_read),
             )
 
+    def test_stalled_stream_fails_without_waiting_for_an_unbounded_read(self) -> None:
+        grant, _ = _grant()
+        data_read, data_write = os.pipe()
+        portal = _FakePortal(grant)
+        source = _TestPortalSource(
+            CaptureRegion(0, 0, 4, 3), portal=portal, process=_FakeProcess(data_read)
+        )
+        with (
+            patch("geometry_dash_ai.capture.portal.select.select", return_value=([], [], [])),
+            self.assertRaisesRegex(CaptureUnavailable, "read timed out"),
+        ):
+            source.capture_once()
+        os.close(data_write)
+        source.close()
+        self.assertTrue(portal.closed)
+
     def test_repeated_portal_timestamp_is_rejected(self) -> None:
         grant, _ = _grant()
         data_read, data_write = os.pipe()
@@ -132,7 +148,10 @@ class PortalCaptureTests(unittest.TestCase):
         source = _TestPortalSource(
             CaptureRegion(0, 0, 4, 3), portal=_FakePortal(grant), process=_FakeProcess(data_read)
         )
-        with patch("geometry_dash_ai.capture.portal.monotonic_ns", side_effect=(10, 11, 10, 11)):
+        with patch(
+            "geometry_dash_ai.capture.portal.monotonic_ns",
+            side_effect=(10, 11, 10, 11, 10, 11, 10, 11),
+        ):
             source.capture_once()
             with self.assertRaisesRegex(CaptureUnavailable, "not monotonic"):
                 source.capture_once()

@@ -165,7 +165,10 @@ class RuntimeSupervisor:
                 self._attempt_started_ns = now
                 self._retry_started_ns = None
                 self.state.transition(AppState.RUNNING, "visual restart confirmed")
-            elif self._retry_started_ns is not None and now - self._retry_started_ns > 3_000_000_000:
+            elif (
+                self._retry_started_ns is not None
+                and now - self._retry_started_ns > 3_000_000_000
+            ):
                 self._controller.pause()
                 self._last_error = "visual retry confirmation timed out"
                 self.state.transition(AppState.PAUSED, "visual retry confirmation timed out")

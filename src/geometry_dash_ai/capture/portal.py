@@ -41,7 +41,10 @@ _SCREENCAST_IFACE = "org.freedesktop.portal.ScreenCast"
 _SESSION_IFACE = "org.freedesktop.portal.Session"
 _SOURCE_MONITOR = 1
 _SOURCE_WINDOW = 2
-_MAX_CAPTURE_LATENCY_SECONDS = 3.0
+# The action watchdog has a 250 ms hard limit.  A capture read must fail well
+# inside that period so the supervising worker can release input on a vanished
+# PipeWire stream instead of waiting on a stalled pipe.
+_MAX_CAPTURE_LATENCY_SECONDS = 0.2
 
 
 class PortalResponseCode(IntEnum):
@@ -289,8 +292,8 @@ class PipeWirePortalFrameSource:
 
     GStreamer is launched with a fixed argument vector and inherited portal FD;
     there is no shell, command interpolation, network use, or input API.  The
-    full selected surface exists only in one read buffer and is immediately
-    cropped to ``region`` before becoming a project frame.
+    crop is performed by the fixed local GStreamer pipeline, so a larger
+    selected monitor surface never enters a Python frame buffer.
     """
 
     def __init__(
@@ -425,11 +428,15 @@ class PipeWirePortalFrameSource:
             raise CaptureUnavailable("PipeWire reader is unavailable")
         buffer = bytearray()
         remaining = size
+        deadline_ns = monotonic_ns() + int(_MAX_CAPTURE_LATENCY_SECONDS * 1_000_000_000.0)
         while remaining:
             if self._process.poll() is not None:
                 raise CaptureUnavailable("portal PipeWire stream ended")
+            remaining_seconds = (deadline_ns - monotonic_ns()) / 1_000_000_000.0
+            if remaining_seconds <= 0.0:
+                raise CaptureUnavailable("portal PipeWire frame read timed out")
             ready, _, _ = select.select(
-                [self._process.stdout], [], [], _MAX_CAPTURE_LATENCY_SECONDS
+                [self._process.stdout], [], [], remaining_seconds
             )
             if not ready:
                 raise CaptureUnavailable("portal PipeWire frame read timed out")

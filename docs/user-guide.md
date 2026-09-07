@@ -54,7 +54,8 @@ Click Start Shadow after Observe stabilizes. The banner explicitly says no input
 For cube frames, cyan is the selected trajectory, gray is a useful alternative,
 green marks a predicted landing, and red marks a predicted collision. The
 dashboard shows action, risk, planner confidence, rate, geometry confidence, and
-latency. Standalone shadow mode also writes compact decision telemetry:
+latency. Standalone shadow mode also writes compact decision telemetry. Its
+on-disk file is capped at 5 MiB, then recording stops while observation continues:
 
 ```bash
 geometry-dash-ai shadow --frames 600 --preview --shadow-log manual-check.jsonl
@@ -146,6 +147,6 @@ untouched. Restart afterward. The next launch falls back to setup/defaults.
 - Portal capture and RemoteDesktop currently use separate ephemeral sessions.
 - The Setup dialog covers common settings; fine-grained player sampling remains
   in the `calibrate` command.
-- Cube planning measured below the aspirational 30 Hz target on this machine in
-  one representative benchmark; stale decisions are rejected rather than used.
+- The cube planner clears the 30 Hz synthetic benchmark target on this machine;
+  portal capture and real-game perception still need user-mediated measurement.
 - The alpha is designed to attempt Stereo Madness; it is not claimed to beat it.

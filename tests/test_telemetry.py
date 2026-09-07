@@ -1,5 +1,6 @@
 import gzip
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +8,7 @@ from tempfile import TemporaryDirectory
 from geometry_dash_ai.physics import CollisionType
 from geometry_dash_ai.planning import CubeAction
 from geometry_dash_ai.simulation import Action, GameMode, SimulationStatus
-from geometry_dash_ai.telemetry import JsonlTelemetryWriter, TelemetryEvent
+from geometry_dash_ai.telemetry import JsonlTelemetryWriter, ShadowTelemetryWriter, TelemetryEvent
 
 
 class TelemetryTests(unittest.TestCase):
@@ -64,6 +65,21 @@ class TelemetryTests(unittest.TestCase):
             writer = JsonlTelemetryWriter(Path(directory) / "run.jsonl")
             with self.assertRaisesRegex(RuntimeError, "context manager"):
                 writer.write(TelemetryEvent("test", 0, {}))
+
+    def test_shadow_writer_caps_an_explicit_diagnostic_log(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data" / "runs").mkdir(parents=True)
+            previous = Path.cwd()
+            os.chdir(root)
+            try:
+                with ShadowTelemetryWriter(Path("shadow.jsonl"), maximum_bytes=1_024) as writer:
+                    writer.write(TelemetryEvent("shadow", 1, {"value": "x" * 2_000}))
+                    writer.write(TelemetryEvent("shadow", 2, {"value": "second"}))
+                    self.assertTrue(writer.truncated)
+            finally:
+                os.chdir(previous)
+            self.assertLess((root / "data" / "runs" / "shadow.jsonl").stat().st_size, 3_000)
 
 
 if __name__ == "__main__":
