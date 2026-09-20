@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from time import monotonic_ns, perf_counter
+from time import perf_counter
 
 from geometry_dash_ai.app.supervisor import RuntimeSupervisor
 from geometry_dash_ai.config.settings import AppConfig
@@ -45,11 +45,12 @@ def run_demo(maximum_frames: int = 360) -> DemoResult:
     simulator = Simulator(level, initial_state=PlayerState())
     config = AppConfig()
     pipeline = build_pipeline(config)
-    supervisor = RuntimeSupervisor(setup_complete=True)
+    clock_ns = [1_000_000_000]
+    supervisor = RuntimeSupervisor(setup_complete=True, planning_clock_ns=lambda: clock_ns[0])
     supervisor.begin_capture()
     backend = MockActionBackend()
     transitions: list[str] = []
-    timestamp = monotonic_ns()
+    timestamp = clock_ns[0]
     result = simulator.reset()
     started = perf_counter()
     # Prime perception before requesting synthetic keyboard permission.
@@ -69,9 +70,11 @@ def run_demo(maximum_frames: int = 360) -> DemoResult:
     for sequence in range(2, maximum_frames):
         frame = render_step(result, level, sequence, timestamp)
         snapshot = pipeline.process(frame)
+        decision_time = timestamp + 1_000_000
+        clock_ns[0] = decision_time
         supervisor.process(
             snapshot,
-            timestamp + 1_000_000,
+            decision_time,
             completion_visual_cue=detect_completion_visual_cue(frame),
         )
         if result.status is SimulationStatus.COMPLETE:

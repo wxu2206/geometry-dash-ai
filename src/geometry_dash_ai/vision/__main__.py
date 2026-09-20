@@ -18,7 +18,7 @@ from geometry_dash_ai.capture import (
 )
 from geometry_dash_ai.capture.source import FrameSource
 from geometry_dash_ai.config.settings import AppConfig, load_config
-from geometry_dash_ai.telemetry import ShadowTelemetryWriter
+from geometry_dash_ai.telemetry import ShadowTelemetryWriter, configure_logging
 from geometry_dash_ai.telemetry.frames import DiagnosticFrameBuffer
 from geometry_dash_ai.tracking import GeometryFuser, PlayerTracker, ScrollEstimator
 from geometry_dash_ai.ui import DebugViewerUnavailable, TkDebugViewer
@@ -78,6 +78,7 @@ def build_pipeline(config: AppConfig) -> PerceptionPipeline:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     config = load_config(args.config, args.local_config if args.local_config.exists() else None)
+    configure_logging(config.logging.level)
     region = CaptureRegion(
         config.capture.left,
         config.capture.top,

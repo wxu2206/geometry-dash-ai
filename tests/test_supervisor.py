@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from time import sleep
+from unittest.mock import patch
 
 from geometry_dash_ai.app.models import Readiness
 from geometry_dash_ai.app.state import AppState
@@ -163,6 +165,35 @@ class SupervisorTests(unittest.TestCase):
         supervisor.process(invalid_for_planner, snapshot.frame.timestamp_ns + 5_000_000)
         self.assertIs(supervisor.state.state, AppState.DEGRADED)
         self.assertFalse(backend.held)
+
+    def test_fixed_step_clock_keeps_synthetic_planning_independent_of_wall_time(self) -> None:
+        pipeline = build_pipeline(AppConfig())
+        snapshot = None
+        for sequence in range(6):
+            snapshot = pipeline.process(
+                frame(scene(), sequence, 4_000_000_000 + sequence * 16_666_667)
+            )
+        assert snapshot is not None
+        clock = [snapshot.frame.timestamp_ns + 1_000_000]
+        supervisor = RuntimeSupervisor(setup_complete=True, planning_clock_ns=lambda: clock[0])
+        supervisor.begin_capture()
+        supervisor.capture_ready()
+        supervisor.enter_shadow()
+        supervisor.attach_control(MockActionBackend())
+        supervisor.arm(clock[0], _ready())
+        supervisor.start(clock[0])
+
+        from geometry_dash_ai.app.supervisor import preview_cube_plan as original_preview
+
+        def delayed_preview(*args: object, **kwargs: object) -> object:
+            sleep(0.11)
+            return original_preview(*args, **kwargs)
+
+        with patch(
+            "geometry_dash_ai.app.supervisor.preview_cube_plan", side_effect=delayed_preview
+        ):
+            supervisor.process(snapshot, clock[0])
+        self.assertIs(supervisor.state.state, AppState.RUNNING)
 
     def test_retry_waits_for_two_visible_reset_frames(self) -> None:
         supervisor = self._shadow()

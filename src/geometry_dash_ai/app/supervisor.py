@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import monotonic_ns
 
@@ -50,6 +51,7 @@ class RuntimeSupervisor:
         cube_physics: CubePhysicsParameters | None = None,
         cube_planner: CubePlannerConfig | None = None,
         action_latency_seconds: float = 0.04,
+        planning_clock_ns: Callable[[], int] | None = None,
     ) -> None:
         self.state = ApplicationStateMachine()
         self.limits = limits or SupervisorLimits()
@@ -65,6 +67,7 @@ class RuntimeSupervisor:
         if not 0.0 <= action_latency_seconds <= 0.5:
             raise ValueError("action latency is outside bounds")
         self._action_latency_seconds = action_latency_seconds
+        self._planning_clock_ns = planning_clock_ns or monotonic_ns
         self._run_observer = VisualRunStateObserver()
         self._attempt = 0
         self._last_mode = PlayerMode.UNKNOWN
@@ -145,7 +148,7 @@ class RuntimeSupervisor:
         *,
         completion_visual_cue: bool = False,
     ) -> tuple[Readiness, RunObservation]:
-        now = monotonic_ns() if now_ns is None else now_ns
+        now = self._clock_ns() if now_ns is None else now_ns
         controller_healthy = self._controller is not None and self._controller.running
         readiness = readiness_from_snapshot(
             snapshot,
@@ -229,7 +232,7 @@ class RuntimeSupervisor:
         """Update planner diagnostics without crossing the action boundary."""
         if self.state.state not in {AppState.SHADOW, AppState.ARMED, AppState.PAUSED}:
             return
-        started = monotonic_ns()
+        started = self._clock_ns()
         player = snapshot.tracked_player
         if player.mode is PlayerMode.CUBE:
             cube_decision = preview_cube_plan(
@@ -379,7 +382,7 @@ class RuntimeSupervisor:
         deadline = snapshot.frame.timestamp_ns + int(
             self.limits.decision_maximum_age_ms * 1_000_000.0
         )
-        started = monotonic_ns()
+        started = self._clock_ns()
         if snapshot.tracked_player.mode is PlayerMode.CUBE:
             cube_decision = preview_cube_plan(
                 snapshot,
@@ -432,13 +435,19 @@ class RuntimeSupervisor:
             raise RuntimeError("planner missed its real-time deadline")
 
     def _update_planner_rate(self, started_ns: int) -> int:
-        finished = monotonic_ns()
+        finished = self._clock_ns()
         if self._last_planner_ns is not None and finished > self._last_planner_ns:
             self._planner_hz = 1_000_000_000.0 / (finished - self._last_planner_ns)
         self._last_planner_ns = finished
         if finished < started_ns:
             raise RuntimeError("planner clock moved backwards")
         return finished
+
+    def _clock_ns(self) -> int:
+        value = self._planning_clock_ns()
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RuntimeError("planner clock returned an invalid timestamp")
+        return value
 
     def _ship_decision(self, snapshot: PerceptionSnapshot) -> ShipDecision:
         player = snapshot.tracked_player

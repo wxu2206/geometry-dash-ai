@@ -130,12 +130,33 @@ class PortalCaptureTests(unittest.TestCase):
         source.close()
 
     def test_caps_dimensions_are_validated_independently_of_portal_metadata(self) -> None:
-        caps = (
-            b"GstPad:src: caps = video/x-raw, width=(int)1152, height=(int)648, "
-            b"format=(string)RGB"
+        renderings = (
+            (
+                b"GstPad:src: caps = video/x-raw, width=(int)1152, height=(int)648, "
+                b"format=(string)RGB",
+                (1152, 648),
+            ),
+            (
+                b"GstPad:src: caps = video/x-raw, height = (int) 1080, "
+                b"colorimetry=(string)sRGB, width = (int) 1920",
+                (1920, 1080),
+            ),
+            (
+                b"GstPad:src: caps = video/x-raw(memory:DMABuf),\n"
+                b"  format=(string)RGB,\n  width=(guint)2560,\n  height=(gint)1440",
+                (2560, 1440),
+            ),
         )
-        self.assertEqual(_parse_pipewire_caps(caps), (1152, 648))
+        for caps, expected in renderings:
+            with self.subTest(caps=caps):
+                self.assertEqual(_parse_pipewire_caps(caps), expected)
         self.assertIsNone(_parse_pipewire_caps(b"video/x-raw, format=(string)RGB"))
+        self.assertIsNone(
+            _parse_pipewire_caps(
+                b"first caps = video/x-raw, width=(int)320\n"
+                b"second caps = video/x-raw, height=(int)240"
+            )
+        )
 
     def test_live_adapter_crops_the_approved_source_and_releases_resources(self) -> None:
         grant, remote_fd = _grant()

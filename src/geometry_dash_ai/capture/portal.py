@@ -56,9 +56,16 @@ _SOURCE_WINDOW = 2
 _MAX_CAPTURE_LATENCY_SECONDS = 0.2
 _CAPS_PROBE_TIMEOUT_SECONDS = 5.0
 _MAX_CAPS_DIAGNOSTIC_BYTES = 65_536
-_CAPS_DIMENSIONS = re.compile(
-    rb"video/x-raw[^\n]*?width=\(int\)([0-9]+),\s*height=\(int\)([0-9]+)"
+_CAPS_RECORD = re.compile(rb"\bcaps\s*=", re.IGNORECASE)
+_VIDEO_RAW_CAPS = re.compile(rb"\bvideo/x-raw(?:\([^\r\n)]*\))?\b", re.IGNORECASE)
+_CAPS_WIDTH = re.compile(
+    rb"\bwidth\s*=\s*\(\s*(?:g?u?int)\s*\)\s*([0-9]+)\b", re.IGNORECASE
 )
+_CAPS_HEIGHT = re.compile(
+    rb"\bheight\s*=\s*\(\s*(?:g?u?int)\s*\)\s*([0-9]+)\b", re.IGNORECASE
+)
+_SENSITIVE_CAPS_ARGUMENT = re.compile(r"\b(?:fd|path)\s*=\s*[^,\s]+", re.IGNORECASE)
+_OBJECT_PATH = re.compile(r"/(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]*")
 _LOG = logging.getLogger(__name__)
 
 
@@ -432,7 +439,7 @@ class PipeWirePortalFrameSource:
             probe = subprocess.Popen(
                 command,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 bufsize=0,
                 pass_fds=(grant.remote_fd,),
@@ -448,29 +455,49 @@ class PipeWirePortalFrameSource:
 
     @staticmethod
     def _read_negotiated_dimensions(process: subprocess.Popen[bytes]) -> tuple[int, int]:
-        if process.stderr is None:
-            raise CaptureUnavailable("PipeWire caps probe has no diagnostic stream")
-        diagnostic = bytearray()
+        streams = tuple(stream for stream in (process.stdout, process.stderr) if stream is not None)
+        if not streams:
+            raise CaptureUnavailable("PipeWire caps probe has no output streams")
+        diagnostics = {stream.fileno(): bytearray() for stream in streams}
+        active_streams = list(streams)
         deadline_ns = monotonic_ns() + int(_CAPS_PROBE_TIMEOUT_SECONDS * 1_000_000_000.0)
-        while monotonic_ns() < deadline_ns and len(diagnostic) < _MAX_CAPS_DIAGNOSTIC_BYTES:
-            dimensions = _parse_pipewire_caps(diagnostic)
+        process_exited = False
+        while monotonic_ns() < deadline_ns and active_streams:
+            dimensions = _parse_pipewire_caps_records(tuple(diagnostics.values()))
             if dimensions is not None:
                 return dimensions
             if process.poll() is not None:
+                process_exited = True
                 break
             remaining = (deadline_ns - monotonic_ns()) / 1_000_000_000.0
-            ready, _, _ = select.select([process.stderr], [], [], max(0.0, remaining))
+            ready, _, _ = select.select(active_streams, [], [], max(0.0, remaining))
             if not ready:
                 break
-            maximum_read = min(4_096, _MAX_CAPS_DIAGNOSTIC_BYTES - len(diagnostic))
-            chunk = os.read(process.stderr.fileno(), maximum_read)
-            if not chunk:
-                break
-            diagnostic.extend(chunk)
-        dimensions = _parse_pipewire_caps(diagnostic)
+            for stream in ready:
+                diagnostic = diagnostics[stream.fileno()]
+                remaining_bytes = _MAX_CAPS_DIAGNOSTIC_BYTES - sum(
+                    len(value) for value in diagnostics.values()
+                )
+                if remaining_bytes <= 0:
+                    active_streams.clear()
+                    break
+                chunk = os.read(stream.fileno(), min(4_096, remaining_bytes))
+                if not chunk:
+                    active_streams.remove(stream)
+                    continue
+                diagnostic.extend(chunk)
+        dimensions = _parse_pipewire_caps_records(tuple(diagnostics.values()))
         if dimensions is not None:
             return dimensions
-        raise CaptureUnavailable("PipeWire stream did not negotiate video dimensions")
+        diagnostics_tuple = tuple(diagnostics.values())
+        if _has_video_caps(diagnostics_tuple):
+            _log_caps_parse_diagnostic(diagnostics_tuple)
+            raise CaptureUnavailable("PipeWire video caps did not include parseable dimensions")
+        if process_exited:
+            _log_caps_parse_diagnostic(diagnostics_tuple)
+            raise CaptureUnavailable("PipeWire caps probe exited before video caps were available")
+        _log_caps_parse_diagnostic(diagnostics_tuple)
+        raise CaptureUnavailable("PipeWire caps probe produced no video caps")
 
     def _start_gstreamer(
         self, grant: PortalGrant, source_width: int, source_height: int
@@ -610,8 +637,51 @@ def _validated_pipewire_dimensions(width_bytes: bytes, height_bytes: bytes) -> t
 
 
 def _parse_pipewire_caps(diagnostic: bytes | bytearray) -> tuple[int, int] | None:
-    """Extract bounded raw-video dimensions from fixed GStreamer ``-v`` output."""
-    match = _CAPS_DIMENSIONS.search(diagnostic)
-    if match is None:
-        return None
-    return _validated_pipewire_dimensions(match.group(1), match.group(2))
+    """Extract dimensions from one bounded GStreamer output stream."""
+    return _parse_pipewire_caps_records((diagnostic,))
+
+
+def _parse_pipewire_caps_records(
+    diagnostics: tuple[bytes | bytearray, ...],
+) -> tuple[int, int] | None:
+    """Extract dimensions only when both fields share one raw-video caps record."""
+    for diagnostic in diagnostics:
+        for record in _video_caps_records(diagnostic):
+            width = _CAPS_WIDTH.search(record)
+            height = _CAPS_HEIGHT.search(record)
+            if width is not None and height is not None:
+                return _validated_pipewire_dimensions(width.group(1), height.group(1))
+    return None
+
+
+def _has_video_caps(diagnostics: tuple[bytes | bytearray, ...]) -> bool:
+    return any(_VIDEO_RAW_CAPS.search(diagnostic) is not None for diagnostic in diagnostics)
+
+
+def _video_caps_records(diagnostic: bytes | bytearray) -> tuple[bytes, ...]:
+    """Split bounded verbose output into independent raw-video caps records."""
+    value = bytes(diagnostic)
+    markers = tuple(_CAPS_RECORD.finditer(value))
+    records: list[bytes] = []
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(value)
+        record = value[marker.end() : end]
+        if _VIDEO_RAW_CAPS.search(record) is not None:
+            records.append(record)
+    return tuple(records)
+
+
+def _log_caps_parse_diagnostic(diagnostics: tuple[bytes | bytearray, ...]) -> None:
+    """Offer opt-in, redacted caps context without retaining portal capabilities."""
+    if not _LOG.isEnabledFor(logging.DEBUG):
+        return
+    merged = b"\n".join(bytes(item) for item in diagnostics)
+    marker = _VIDEO_RAW_CAPS.search(merged) or _CAPS_RECORD.search(merged)
+    if marker is None:
+        excerpt = "no caps text was emitted"
+    else:
+        start = max(0, marker.start() - 96)
+        text = merged[start : start + 512].decode("ascii", "replace")
+        text = _SENSITIVE_CAPS_ARGUMENT.sub("<redacted>", text)
+        excerpt = _OBJECT_PATH.sub("<redacted-path>", text).replace("\n", " ")
+    _LOG.debug("PipeWire caps probe diagnostic excerpt: %s", excerpt)

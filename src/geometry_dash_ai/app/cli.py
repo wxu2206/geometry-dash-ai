@@ -14,6 +14,7 @@ from geometry_dash_ai.app.ipc import LocalRuntimeFiles
 from geometry_dash_ai.app.ui import AlphaLocalWebApplication, AlphaUiUnavailable
 from geometry_dash_ai.calibrate import main as calibrate_main
 from geometry_dash_ai.config.settings import ConfigError, load_config
+from geometry_dash_ai.telemetry import configure_logging
 from geometry_dash_ai.vision.__main__ import main as observe_main
 
 
@@ -71,6 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         local = root / "config" / "local.toml"
         config = load_config(root / "config" / "default.toml", local if local.exists() else None)
+        configure_logging(config.logging.level)
         application = AlphaLocalWebApplication(config, root)
         application.run()
     except (ConfigError, AlphaUiUnavailable, RuntimeError) as exc:
