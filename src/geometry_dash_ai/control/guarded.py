@@ -198,7 +198,7 @@ class GuardedActionController:
         if now_ns > deadline_ns:
             self.fail_closed()
             raise ControlSafetyError("planner decision is stale; input released")
-        if not self._backend.healthy:
+        if not self._backend.permission_granted or not self._backend.healthy:
             self.fail_closed()
             raise ControlSafetyError("keyboard permission was lost; input released")
 

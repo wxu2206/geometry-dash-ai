@@ -158,6 +158,23 @@ class PortalCaptureTests(unittest.TestCase):
             )
         )
 
+    def test_caps_probe_drains_final_output_after_the_process_has_exited(self) -> None:
+        read_fd, write_fd = os.pipe()
+        os.write(
+            write_fd,
+            b"GstPad:src: caps = video/x-raw, format=(string)RGB, "
+            b"width=(int)320, height=(int)180\n",
+        )
+        os.close(write_fd)
+        process = _FakeProcess(read_fd, ended=True)
+        try:
+            self.assertEqual(
+                PipeWirePortalFrameSource._read_negotiated_dimensions(process),
+                (320, 180),
+            )
+        finally:
+            process.stdout.close()
+
     def test_live_adapter_crops_the_approved_source_and_releases_resources(self) -> None:
         grant, remote_fd = _grant()
         data_read, data_write = os.pipe()

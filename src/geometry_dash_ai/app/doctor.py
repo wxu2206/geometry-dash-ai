@@ -93,17 +93,23 @@ def run_doctor(project_root: Path) -> tuple[DoctorCheck, ...]:
             else CheckLevel.WARN,
             "low-level fixed D-Bus transport available; no XML introspection"
             if importlib.util.find_spec("dbus_next") is not None
-            else "dbus-next is unavailable; install the repository live extra in .venv",
+            else "dbus-next is unavailable; install project dependencies in .venv",
         )
     )
-    gst = shutil.which("gst-launch-1.0") is not None and _pipewire_plugin_available()
+    missing_gstreamer_plugins = _missing_pipewire_plugins()
+    gst = shutil.which("gst-launch-1.0") is not None and not missing_gstreamer_plugins
     checks.append(
         DoctorCheck(
             "PipeWire reader",
             CheckLevel.PASS if gst else CheckLevel.FAIL,
-            "GStreamer PipeWire source available"
+            "GStreamer PipeWire reader pipeline available"
             if gst
-            else "existing GStreamer PipeWire reader unavailable",
+            else (
+                "existing GStreamer PipeWire reader pipeline unavailable"
+                if not missing_gstreamer_plugins
+                else "missing existing GStreamer plugin(s): "
+                + ", ".join(missing_gstreamer_plugins)
+            ),
         )
     )
     for module in ("numpy", "dbus_next"):
@@ -112,7 +118,7 @@ def run_doctor(project_root: Path) -> tuple[DoctorCheck, ...]:
             DoctorCheck(
                 f"Python module {module}",
                 CheckLevel.PASS if available else CheckLevel.WARN,
-                "available" if available else "install the repository live extra in .venv",
+                "available" if available else "install project dependencies in .venv",
             )
         )
     control_available = portal_reachable and importlib.util.find_spec("dbus_next") is not None
@@ -150,19 +156,25 @@ def run_doctor(project_root: Path) -> tuple[DoctorCheck, ...]:
     return tuple(checks)
 
 
-def _pipewire_plugin_available() -> bool:
+def _missing_pipewire_plugins() -> tuple[str, ...]:
+    """Return required fixed pipeline elements absent from existing GStreamer."""
     executable = shutil.which("gst-inspect-1.0")
     if executable is None:
-        return False
-    try:
-        result = subprocess.run(
-            [executable, "pipewiresrc"],
-            check=False,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=3.0,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return result.returncode == 0
+        return ("gst-inspect-1.0",)
+    missing: list[str] = []
+    for plugin in ("pipewiresrc", "queue", "videoconvert", "videocrop", "fdsink"):
+        try:
+            result = subprocess.run(
+                [executable, plugin],
+                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3.0,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            missing.append(plugin)
+            continue
+        if result.returncode != 0:
+            missing.append(plugin)
+    return tuple(missing)

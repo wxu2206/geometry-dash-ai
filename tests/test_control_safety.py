@@ -78,6 +78,20 @@ class ControlSafetyTests(unittest.TestCase):
             self.assertFalse(controller.running)
             self.assertFalse(controller.armed)
 
+    def test_permission_flag_loss_is_checked_even_if_backend_health_is_stale(self) -> None:
+        backend = MockActionBackend()
+        controller = GuardedActionController(backend, self.limits)
+        # The real portal backend should make both fields false. This regression
+        # protects the action boundary even if a transport has not refreshed its
+        # independent health field yet.
+        controller.arm(1_000_000_000)
+        controller.start(1_000_000_001)
+        backend.revoke_permission_only()
+        with self.assertRaisesRegex(ControlSafetyError, "permission was lost"):
+            controller.tap(1_000_000_002, 1_100_000_000)
+        self.assertEqual(backend.events, [])
+        self.assertFalse(controller.armed)
+
     def test_arming_and_session_expire(self) -> None:
         self.controller.arm(1_000_000_000)
         with self.assertRaisesRegex(ControlSafetyError, "arming expired"):

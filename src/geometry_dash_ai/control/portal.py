@@ -71,7 +71,7 @@ class KdeRemoteDesktopActionBackend:
             from dbus_next.aio import MessageBus
         except ImportError as exc:
             raise ControlUnavailable(
-                "live control requires the optional pure-Python dbus-next dependency"
+                "live control requires the pure-Python dbus-next project dependency"
             ) from exc
         try:
             self._bus = await MessageBus(bus_type=BusType.SESSION).connect()

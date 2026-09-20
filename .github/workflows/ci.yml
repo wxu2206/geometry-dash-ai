@@ -30,4 +30,7 @@ jobs:
         run: python -m mypy src
       - name: Run deterministic tests
         run: python -m pytest
-
+      - name: Compile sources and tests
+        run: python -m compileall -q src tests scripts
+      - name: Check installed dependency consistency
+        run: python -m pip check

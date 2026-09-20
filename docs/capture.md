@@ -48,7 +48,9 @@ pipe.
 
 `dbus-next` is a normal pure-Python application dependency. The optional `live`
 extra adds `mss` for the legacy direct-capture fallback; the existing user session
-must already provide GStreamer’s PipeWire plugin:
+must already provide the fixed GStreamer reader elements `pipewiresrc`, `queue`,
+`videoconvert`, `videocrop`, and `fdsink`. `geometry-dash-ai doctor` checks all
+five without modifying the host:
 
 ```bash
 python -m pip install -e '.[dev,live]'

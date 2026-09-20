@@ -24,6 +24,10 @@ class MockActionBackend:
     def revoke(self) -> None:
         self._healthy = False
 
+    def revoke_permission_only(self) -> None:
+        """Model a permission status update that precedes a health refresh."""
+        self._granted = False
+
     def press_action(self) -> None:
         if not self.healthy:
             raise ControlPermissionLost("mock keyboard permission was revoked")

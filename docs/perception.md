@@ -40,8 +40,10 @@ screen-space and carries its own confidence.
 ## Tracking and Fusion
 
 `PlayerTracker` uses monotonic timestamps, smooths finite velocity and acceleration,
-caps velocity, rejects non-increasing timestamps, predicts briefly through misses,
-records age/lost frames, and smooths cube/ship mode votes. `ScrollEstimator` tracks geometry
+rejects non-increasing timestamps and detections that require an impossible speed,
+then predicts briefly through misses with confidence decay. It records age/lost
+frames and smooths cube/ship mode votes. This prevents a distant colour-matched
+particle or UI component from becoming an abrupt planner position. `ScrollEstimator` tracks geometry
 anchors rather than player movement. `GeometryFuser` retains a bounded history
 and blends overlapping boxes to reduce one-frame jitter; it never reconstructs
 an unbounded map.

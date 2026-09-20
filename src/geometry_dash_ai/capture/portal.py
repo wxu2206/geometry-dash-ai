@@ -249,7 +249,7 @@ class KdeScreenCastPortal:
             from dbus_next.aio import MessageBus
         except ImportError as exc:
             raise CaptureUnavailable(
-                "Wayland portal support needs the optional pure-Python 'dbus-next' live dependency"
+                "Wayland portal support needs the pure-Python 'dbus-next' project dependency"
             ) from exc
         self._loop = asyncio.new_event_loop()
         try:
@@ -467,10 +467,14 @@ class PipeWirePortalFrameSource:
             if dimensions is not None:
                 return dimensions
             if process.poll() is not None:
+                # A short caps probe can write its final negotiated message and
+                # exit before this worker is scheduled again. Drain pipes that
+                # are already readable instead of discarding that final output.
                 process_exited = True
-                break
-            remaining = (deadline_ns - monotonic_ns()) / 1_000_000_000.0
-            ready, _, _ = select.select(active_streams, [], [], max(0.0, remaining))
+                ready, _, _ = select.select(active_streams, [], [], 0.0)
+            else:
+                remaining = (deadline_ns - monotonic_ns()) / 1_000_000_000.0
+                ready, _, _ = select.select(active_streams, [], [], max(0.0, remaining))
             if not ready:
                 break
             for stream in ready:

@@ -42,6 +42,47 @@ class TrackingTests(unittest.TestCase):
         result = tracker.update(reacquired_frame, reacquired)
         self.assertEqual(result.lost_seconds, 0.0)
 
+    def test_impossible_detection_is_treated_as_a_bounded_missing_frame(self) -> None:
+        tracker = PlayerTracker(maximum_velocity_px_s=100.0)
+        first_frame = frame(scene(), 0, 1_000_000_000)
+        first = PlayerDetection(
+            ScreenBox(50, 100, 20, 20), PlayerMode.CUBE, 1.0, 0, first_frame.timestamp_ns
+        )
+        tracker.update(first_frame, first)
+        distractor_frame = frame(scene(), 1, 1_100_000_000)
+        distractor = PlayerDetection(
+            ScreenBox(250, 100, 20, 20), PlayerMode.CUBE, 1.0, 1, distractor_frame.timestamp_ns
+        )
+        tracked = tracker.update(distractor_frame, distractor)
+        self.assertEqual(tracked.lost_frames, 1)
+        self.assertGreater(tracked.lost_seconds, 0.0)
+        self.assertIsNotNone(tracked.bounds)
+        assert tracked.bounds is not None
+        self.assertLess(tracked.bounds.x, 100.0)
+
+    def test_missing_prediction_stops_after_its_bounded_reacquisition_window(self) -> None:
+        tracker = PlayerTracker(maximum_velocity_px_s=100.0, maximum_missing_seconds=0.2)
+        first_frame = frame(scene(), 0, 1_000_000_000)
+        tracker.update(
+            first_frame,
+            PlayerDetection(
+                ScreenBox(50, 100, 20, 20), PlayerMode.CUBE, 1.0, 0, first_frame.timestamp_ns
+            ),
+        )
+        moving_frame = frame(scene(), 1, 1_100_000_000)
+        tracker.update(
+            moving_frame,
+            PlayerDetection(
+                ScreenBox(60, 100, 20, 20), PlayerMode.CUBE, 1.0, 1, moving_frame.timestamp_ns
+            ),
+        )
+        briefly_missing = tracker.update(frame(scene(include_player=False), 2, 1_200_000_000), None)
+        expired_missing = tracker.update(frame(scene(include_player=False), 3, 1_500_000_000), None)
+        self.assertIsNotNone(briefly_missing.bounds)
+        self.assertIsNotNone(expired_missing.bounds)
+        assert briefly_missing.bounds is not None and expired_missing.bounds is not None
+        self.assertEqual(expired_missing.bounds, briefly_missing.bounds)
+
     def test_mode_smoothing_rejects_one_frame_flicker_but_allows_transition(self) -> None:
         tracker = PlayerTracker(mode_history_frames=3)
         first_frame = frame(scene(), 0, 1_000_000_000)

@@ -101,6 +101,13 @@ class PlayerTracker:
         )
         if detection is None:
             tracked = self._missing(frame, previous, delta_seconds)
+        elif not self._motion_is_plausible(detection, previous, delta_seconds):
+            # A colour-matched UI element or particle can be a valid component
+            # while being physically impossible relative to the current track.
+            # Do not publish its discontinuous bounds to a future planner: use
+            # the same bounded, confidence-decaying path as a missed frame and
+            # wait for a plausible reacquisition instead.
+            tracked = self._missing(frame, previous, delta_seconds)
         else:
             tracked = self._detected(detection, previous, delta_seconds)
         self._previous = tracked
@@ -152,8 +159,19 @@ class PlayerTracker:
             previous.confidence * (0.35 if lost > self._maximum_missing_seconds else 0.85),
         )
         mode = previous.mode if confidence >= 0.15 else PlayerMode.UNKNOWN
+        bounds = previous.bounds
+        if bounds is not None and delta_seconds > 0.0 and lost <= self._maximum_missing_seconds:
+            # Keep the temporal prior useful during short occlusions, without
+            # extending it beyond ``maximum_missing_seconds``. Velocity is
+            # already bounded at the detection boundary.
+            bounds = ScreenBox(
+                bounds.x + previous.vx * delta_seconds,
+                bounds.y + previous.vy * delta_seconds,
+                bounds.width,
+                bounds.height,
+            )
         return TrackedPlayer(
-            previous.bounds,
+            bounds,
             previous.vx * 0.8,
             previous.vy * 0.8,
             mode,
@@ -165,6 +183,26 @@ class PlayerTracker:
             previous.ay * 0.5,
             previous.age_frames + 1,
             previous.lost_frames + 1,
+        )
+
+    def _motion_is_plausible(
+        self,
+        detection: PlayerDetection,
+        previous: TrackedPlayer | None,
+        delta_seconds: float,
+    ) -> bool:
+        """Reject detections requiring a speed outside the configured bound."""
+        if previous is None or previous.bounds is None or delta_seconds <= 0.0:
+            return True
+        prior_x, prior_y = previous.bounds.center
+        current_x, current_y = detection.bounds.center
+        raw_vx = (current_x - prior_x) / delta_seconds
+        raw_vy = (current_y - prior_y) / delta_seconds
+        return (
+            isfinite(raw_vx)
+            and isfinite(raw_vy)
+            and abs(raw_vx) <= self._maximum_velocity
+            and abs(raw_vy) <= self._maximum_velocity
         )
 
     def _bounded_velocity(self, raw: float, prior: float) -> float:
