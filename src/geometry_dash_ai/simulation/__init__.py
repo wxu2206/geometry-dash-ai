@@ -13,6 +13,7 @@ from geometry_dash_ai.simulation.models import (
     SimulationStatus,
     Spike,
 )
+from geometry_dash_ai.simulation.scenarios import SyntheticScenario, scenario_catalog
 
 __all__ = [
     "Action",
@@ -26,5 +27,6 @@ __all__ = [
     "SimulationStatus",
     "Simulator",
     "Spike",
+    "SyntheticScenario",
+    "scenario_catalog",
 ]
-

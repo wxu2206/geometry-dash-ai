@@ -18,8 +18,11 @@ data/
 ```
 
 Writers create directories lazily. Run history loads at most 500 records and
-compacts at its byte cap. Explicit shadow logs are user-requested and should be
-rotated manually; ordinary application history is bounded automatically.
+compacts at its byte cap. Configuration, calibration, and run-history
+compaction use an owner-only, same-directory atomic replacement, so an
+interrupted replacement retains the previous valid file. Explicit shadow logs
+are user-requested and should be rotated manually; ordinary application history
+is bounded automatically.
 
 ## Telemetry JSON Lines
 

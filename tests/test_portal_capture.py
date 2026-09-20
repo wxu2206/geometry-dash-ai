@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -46,11 +47,34 @@ class _FakeProcess:
     def terminate(self) -> None:
         self.terminated = True
 
+    def kill(self) -> None:
+        self.killed = True
+
     def wait(self, timeout: float) -> int:
         return 0
 
+
+class _StubbornProcess:
+    stdout = None
+    stderr = None
+
+    def __init__(self) -> None:
+        self.terminated = False
+        self.killed = False
+        self.wait_calls = 0
+
+    def terminate(self) -> None:
+        self.terminated = True
+
     def kill(self) -> None:
         self.killed = True
+
+    def wait(self, timeout: float) -> int:
+        del timeout
+        self.wait_calls += 1
+        if self.wait_calls == 1:
+            raise subprocess.TimeoutExpired("gst-launch-1.0", 2.0)
+        return 0
 
 
 class _TestPortalSource(PipeWirePortalFrameSource):
@@ -158,6 +182,33 @@ class PortalCaptureTests(unittest.TestCase):
             )
         )
 
+    def test_caps_parser_corpus_keeps_dimensions_within_one_video_record(self) -> None:
+        corpus = (
+            (
+                b"caps=video/x-raw,format=(string)RGB,framerate=(fraction)60/1,"
+                b"width=(guint)1280,height=(gint)720,pixel-aspect-ratio=(fraction)1/1",
+                (1280, 720),
+            ),
+            (
+                b"pad caps = video/x-raw(memory:DMABuf), colorimetry=(string)sRGB,\n"
+                b" interlace-mode=(string)progressive, height=(int)1080, width=(int)1920",
+                (1920, 1080),
+            ),
+            (
+                b"unrelated caps = audio/x-raw,rate=(int)48000\n"
+                b"video caps = video/x-raw, width=(int)800, height=(int)600, format=(string)RGB",
+                (800, 600),
+            ),
+            (
+                b"first caps = video/x-raw,width=(int)640,height=(int)480\n"
+                b"second caps = video/x-raw,width=(int)1280,height=(int)720",
+                (640, 480),
+            ),
+        )
+        for diagnostic, expected in corpus:
+            with self.subTest(diagnostic=diagnostic):
+                self.assertEqual(_parse_pipewire_caps(diagnostic), expected)
+
     def test_caps_probe_drains_final_output_after_the_process_has_exited(self) -> None:
         read_fd, write_fd = os.pipe()
         os.write(
@@ -174,6 +225,13 @@ class PortalCaptureTests(unittest.TestCase):
             )
         finally:
             process.stdout.close()
+
+    def test_process_cleanup_escalates_to_kill_when_terminate_is_ignored(self) -> None:
+        process = _StubbornProcess()
+        PipeWirePortalFrameSource._stop_process(process)  # type: ignore[arg-type]
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+        self.assertEqual(process.wait_calls, 2)
 
     def test_live_adapter_crops_the_approved_source_and_releases_resources(self) -> None:
         grant, remote_fd = _grant()

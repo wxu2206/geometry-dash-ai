@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from math import isfinite
 from pathlib import Path
 
+from geometry_dash_ai.safe_io import atomic_owner_write
+
 MAX_HISTORY_BYTES = 5 * 1024 * 1024
 MAX_LOADED_RUNS = 500
 
@@ -102,17 +104,4 @@ class RunHistoryStore:
         keep = self.path.read_bytes()[-(self._maximum_bytes // 2) :]
         first_newline = keep.find(b"\n")
         keep = b"" if first_newline < 0 else keep[first_newline + 1 :]
-        descriptor = os.open(
-            self.path,
-            os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW,
-            0o600,
-        )
-        try:
-            remaining = memoryview(keep)
-            while remaining:
-                written = os.write(descriptor, remaining)
-                if written <= 0:
-                    raise OSError("run history compaction did not complete")
-                remaining = remaining[written:]
-        finally:
-            os.close(descriptor)
+        atomic_owner_write(self.path, keep)

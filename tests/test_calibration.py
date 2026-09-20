@@ -5,6 +5,7 @@ import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
 
@@ -44,7 +45,13 @@ class CalibrationTests(unittest.TestCase):
         with self.assertRaises(CalibrationInvalid):
             AirborneSample(math.nan, 1.0, 1.0)
         with self.assertRaises(CalibrationInvalid):
+            AirborneSample(True, 1.0, 1.0)
+        with self.assertRaises(CalibrationInvalid):
             PhysicsCalibration(gravity=1.0)
+        with self.assertRaises(CalibrationInvalid):
+            PhysicsCalibration(gravity=True)
+        with self.assertRaises(CalibrationInvalid):
+            CubePhysicsCalibrator().adapt(PhysicsCalibration(), True)
 
     def test_large_error_rolls_back_and_good_fit_is_promoted(self) -> None:
         calibrator = CubePhysicsCalibrator(minimum_samples=6, learning_rate=0.1)
@@ -130,6 +137,19 @@ class CalibrationTests(unittest.TestCase):
             (root / "data" / "calibration").symlink_to(Path(outside), target_is_directory=True)
             with self.assertRaisesRegex(CalibrationInvalid, "symlink"):
                 CalibrationStore(root)
+
+    def test_failed_calibration_write_preserves_the_last_valid_model(self) -> None:
+        with TemporaryDirectory() as directory:
+            store = CalibrationStore(Path(directory))
+            current = PhysicsCalibration(sample_count=20, revision=2)
+            store.save(current, PhysicsCalibration())
+            with (
+                patch("geometry_dash_ai.safe_io.os.write", side_effect=OSError("injected")),
+                self.assertRaisesRegex(CalibrationInvalid, "complete calibration write"),
+            ):
+                store.save(PhysicsCalibration(gravity=-1_200.0), PhysicsCalibration())
+            self.assertEqual(store.load()[0], current)
+            self.assertEqual(tuple(store.path.parent.glob(".*.tmp")), ())
 
 
 if __name__ == "__main__":

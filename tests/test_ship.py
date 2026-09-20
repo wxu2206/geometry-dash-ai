@@ -70,6 +70,43 @@ class ShipTests(unittest.TestCase):
             ShipPlannerConfig(segments=6)
         with self.assertRaises(ValueError):
             simulate_ship_trajectory(self.ship, self.corridor, self.physics, (True,) * 9, 1)
+        with self.assertRaisesRegex(ValueError, "finite"):
+            ShipPlannerConfig(switch_penalty=math.nan)
+        with self.assertRaisesRegex(ValueError, "finite"):
+            ShipPlannerConfig(hysteresis_margin=math.inf)
+        with self.assertRaisesRegex(ValueError, "integer"):
+            ShipPlannerConfig(segments=True)
+        with self.assertRaisesRegex(ValueError, "ship state"):
+            plan_ship_action("not-a-ship", self.corridor)  # type: ignore[arg-type]
+
+    def test_seeded_corridor_matrix_stays_bounded_and_finite(self) -> None:
+        import random
+
+        randomizer = random.Random(20260920)
+        for _ in range(200):
+            floor = 0.0
+            ceiling = randomizer.uniform(70.0, 260.0)
+            ship = ShipState(
+                0.0,
+                randomizer.uniform(4.0, ceiling - 18.0),
+                randomizer.uniform(80.0, 300.0),
+                randomizer.uniform(-220.0, 220.0),
+                20.0,
+                16.0,
+                randomizer.choice((False, True)),
+                randomizer.uniform(0.2, 1.0),
+            )
+            geometry = LocalGeometry(
+                floors=(FloorSegment(-100.0, 1_000.0, floor),),
+                solids=(SolidRect(AABB(-100.0, ceiling, 1_000.0, 12.0), "ceiling"),),
+                uncertainty=randomizer.uniform(0.0, 1.0),
+                death_y=-50.0,
+            )
+            decision = plan_ship_action(ship, geometry)
+            self.assertIn(decision.hold, (False, True))
+            self.assertLessEqual(len(decision.candidates), 8)
+            self.assertTrue(math.isfinite(decision.selected_score))
+            self.assertTrue(math.isfinite(decision.confidence))
 
 
 if __name__ == "__main__":

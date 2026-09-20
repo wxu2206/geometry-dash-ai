@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict, dataclass, replace
 from math import isfinite
 from pathlib import Path
 
 import numpy as np
+
+from geometry_dash_ai.safe_io import atomic_owner_write
 
 CALIBRATION_SCHEMA_VERSION = 1
 
@@ -25,7 +26,10 @@ class AirborneSample:
 
     def __post_init__(self) -> None:
         values = (self.time_seconds, self.y, self.confidence)
-        if not all(isinstance(value, (int, float)) and isfinite(value) for value in values):
+        if not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+            for value in values
+        ):
             raise CalibrationInvalid("airborne calibration sample must be finite")
         if self.time_seconds < 0.0 or not 0.0 <= self.confidence <= 1.0:
             raise CalibrationInvalid("airborne calibration sample is outside bounds")
@@ -58,7 +62,10 @@ class PhysicsCalibration:
             self.detection_latency_seconds,
             self.uncertainty,
         )
-        if not all(isinstance(value, (int, float)) and isfinite(value) for value in numeric):
+        if not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+            for value in numeric
+        ):
             raise CalibrationInvalid("calibration values must be finite")
         if not -10_000.0 <= self.gravity <= -100.0 or not 50.0 <= self.jump_velocity <= 2_000.0:
             raise CalibrationInvalid("cube ballistic calibration is outside safe bounds")
@@ -116,7 +123,12 @@ class CubePhysicsCalibrator:
         return fitted
 
     def adapt(self, candidate: PhysicsCalibration, observed_error_px: float) -> PhysicsCalibration:
-        if not isfinite(observed_error_px) or observed_error_px < 0.0:
+        if (
+            isinstance(observed_error_px, bool)
+            or not isinstance(observed_error_px, (int, float))
+            or not isfinite(observed_error_px)
+            or observed_error_px < 0.0
+        ):
             raise CalibrationInvalid("observed calibration error is invalid")
         if observed_error_px > 96.0:
             self.current = self.last_known_good
@@ -168,21 +180,10 @@ class CalibrationStore:
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
-        descriptor = os.open(
-            self.path,
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-            0o600,
-        )
         try:
-            remaining = memoryview(payload)
-            while remaining:
-                written = os.write(descriptor, remaining)
-                if written <= 0:
-                    raise CalibrationInvalid("could not complete calibration write")
-                remaining = remaining[written:]
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+            atomic_owner_write(self.path, payload)
+        except OSError as exc:
+            raise CalibrationInvalid("could not complete calibration write") from exc
 
     def load(self) -> tuple[PhysicsCalibration, PhysicsCalibration]:
         try:

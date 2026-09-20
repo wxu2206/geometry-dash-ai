@@ -2,6 +2,7 @@ import math
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import numpy as np
 
@@ -81,6 +82,21 @@ class ConfigTests(unittest.TestCase):
             restored = load_config(Path("config/default.toml"), path)
             self.assertEqual(restored, original)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_failed_local_configuration_write_preserves_the_last_valid_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            original = load_config(Path("config/default.toml"))
+            path = save_local_config(root, original)
+            original_content = path.read_bytes()
+            with (
+                patch("geometry_dash_ai.safe_io.os.write", side_effect=OSError("injected")),
+                self.assertRaisesRegex(OSError, "injected"),
+            ):
+                save_local_config(root, original)
+            self.assertEqual(path.read_bytes(), original_content)
+            self.assertEqual(tuple(path.parent.glob(".*.tmp")), ())
 
 
 if __name__ == "__main__":

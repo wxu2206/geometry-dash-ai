@@ -132,6 +132,23 @@ class ControlSafetyTests(unittest.TestCase):
         self.assertFalse(controller.armed)
         self.assertTrue(backend.closed)
 
+    def test_press_failure_after_key_down_releases_and_disarms(self) -> None:
+        class PressThenFailureBackend(MockActionBackend):
+            def press_action(self) -> None:
+                super().press_action()
+                raise RuntimeError("transport failed after press")
+
+        backend = PressThenFailureBackend()
+        controller = GuardedActionController(backend, self.limits)
+        controller.arm(1_000_000_000)
+        controller.start(1_000_000_001)
+        with self.assertRaisesRegex(RuntimeError, "after press"):
+            controller.tap(1_000_000_002, 1_100_000_000)
+        self.assertEqual(backend.events, ["press", "release"])
+        self.assertFalse(backend.held)
+        self.assertFalse(controller.armed)
+        self.assertFalse(controller.running)
+
 
 if __name__ == "__main__":
     unittest.main()

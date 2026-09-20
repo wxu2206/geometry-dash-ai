@@ -69,12 +69,12 @@ class ClassicalGeometryDetector:
             & (rgb[:, :, 0] >= 150)
         )
         spikes = tuple(
-            self._box_from_component(item)
+            box
             for item in components(
                 red,
                 max(2, self._config.minimum_area_px // (scale * scale)),
             )
-            if self._plausible_spike(item, floors)
+            for box in self._spike_boxes(item, floors)
         )
         floors = tuple(self._scale_box(box, scale) for box in floors)
         solids = tuple(self._scale_box(box, scale) for box in solids)
@@ -151,3 +151,39 @@ class ClassicalGeometryDetector:
             for floor in floors
         )
         return 0.4 <= aspect <= 2.5 and 0.2 <= fill <= 0.82 and supported
+
+    def _spike_boxes(
+        self,
+        component: Component,
+        floors: tuple[ScreenBox, ...],
+    ) -> tuple[ScreenBox, ...]:
+        """Return one to three floor-supported triangular hazard boxes.
+
+        Adjacent Geometry Dash spikes often join into one red component at their
+        bases. Treating that whole component as one overly-wide triangle loses a
+        real grouped hazard. A grouped split is accepted only for a plausible
+        two/three-spike aspect ratio, with the same floor support and fill checks
+        as a single spike; decorative wide triangles remain rejected otherwise.
+        """
+        if self._plausible_spike(component, floors):
+            return (self._box_from_component(component),)
+        if component.height < 4:
+            return ()
+        aspect = component.width / component.height
+        count = round(aspect)
+        if count not in {2, 3} or abs(aspect - count) > 0.45:
+            return ()
+        fill = component.area / (component.width * component.height)
+        base_y = component.y + component.height
+        supported = any(
+            floor.x - component.width * 2 <= component.x <= floor.right + component.width * 2
+            and abs(base_y - floor.y) <= max(10.0, component.height * 0.5)
+            for floor in floors
+        )
+        if not supported or not 0.2 <= fill <= 0.82:
+            return ()
+        width = component.width / count
+        return tuple(
+            ScreenBox(component.x + index * width, component.y, width, component.height)
+            for index in range(count)
+        )

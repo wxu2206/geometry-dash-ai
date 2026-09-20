@@ -1,5 +1,6 @@
 import math
 import unittest
+from random import Random
 
 from geometry_dash_ai.physics import (
     AABB,
@@ -204,6 +205,59 @@ class CubePhysicsTests(unittest.TestCase):
             self.assertGreater(state.height, 0.0)
             self.assertGreaterEqual(state.simulation_time, previous_time)
             previous_time = state.simulation_time
+
+    def test_seeded_spike_sweep_translation_invariance(self) -> None:
+        randomizer = Random(20260920)
+        for _ in range(250):
+            spike = Spike(
+                randomizer.uniform(-100.0, 100.0),
+                randomizer.uniform(-20.0, 40.0),
+                randomizer.uniform(4.0, 48.0),
+                randomizer.uniform(4.0, 48.0),
+            )
+            start = AABB(
+                randomizer.uniform(-160.0, 80.0),
+                randomizer.uniform(-60.0, 100.0),
+                randomizer.uniform(2.0, 32.0),
+                randomizer.uniform(2.0, 32.0),
+            )
+            end = AABB(
+                start.x + randomizer.uniform(-120.0, 180.0),
+                start.y + randomizer.uniform(-80.0, 80.0),
+                start.width,
+                start.height,
+            )
+            offset_x = randomizer.uniform(-10_000.0, 10_000.0)
+            offset_y = randomizer.uniform(-10_000.0, 10_000.0)
+            translated_spike = Spike(
+                spike.x + offset_x,
+                spike.base_y + offset_y,
+                spike.width,
+                spike.height,
+            )
+            translated_start = AABB(
+                start.x + offset_x,
+                start.y + offset_y,
+                start.width,
+                start.height,
+            )
+            translated_end = AABB(
+                end.x + offset_x,
+                end.y + offset_y,
+                end.width,
+                end.height,
+            )
+            original = swept_spike_collision_time(spike, start, end)
+            translated = swept_spike_collision_time(
+                translated_spike,
+                translated_start,
+                translated_end,
+            )
+            self.assertEqual(original is None, translated is None)
+            if original is not None and translated is not None:
+                self.assertGreaterEqual(original, 0.0)
+                self.assertLessEqual(original, 1.0)
+                self.assertAlmostEqual(original, translated, delta=1e-9)
 
 
 if __name__ == "__main__":

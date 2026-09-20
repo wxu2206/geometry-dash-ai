@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -12,6 +13,7 @@ import numpy as np
 
 from geometry_dash_ai.app.ipc import LocalRuntimeFiles
 from geometry_dash_ai.app.ui import LOOPBACK_HOST, MAX_PREVIEW_BYTES, AlphaLocalWebApplication
+from geometry_dash_ai.capture import CaptureRegion, CaptureUnavailable
 from geometry_dash_ai.config.settings import AppConfig
 from geometry_dash_ai.vision.pipeline import PerceptionSnapshot
 
@@ -134,6 +136,52 @@ class LocalWebUiTests(unittest.TestCase):
             application._worker.join(timeout=1.0)
             self.assertIsNotNone(application._last_snapshot)
             application.close()
+
+    def test_close_unblocks_a_capture_worker_and_remains_idempotent(self) -> None:
+        class BlockingSource:
+            def __init__(self) -> None:
+                self._closed = threading.Event()
+                self.started = threading.Event()
+
+            @property
+            def region(self) -> CaptureRegion:
+                return CaptureRegion(0, 0, 320, 180)
+
+            @property
+            def capture_fps(self) -> float:
+                return 0.0
+
+            @property
+            def dropped_frames(self) -> int:
+                return 0
+
+            @property
+            def capture_latency_ms(self) -> float:
+                return 0.0
+
+            @property
+            def maximum_recent_capture_latency_ms(self) -> float:
+                return 0.0
+
+            def capture_once(self) -> object:
+                self.started.set()
+                self._closed.wait()
+                raise CaptureUnavailable("test source closed")
+
+            def close(self) -> None:
+                self._closed.set()
+
+        with TemporaryDirectory() as directory:
+            application = self._application(Path(directory))
+            source = BlockingSource()
+            application._make_source = lambda: source  # type: ignore[method-assign]
+            application.dispatch("setup", self._setup_payload())
+            application.dispatch("observe", {})
+            self.assertTrue(source.started.wait(timeout=1.0))
+            application.close()
+            application.close()
+            assert application._worker is not None
+            self.assertFalse(application._worker.is_alive())
 
 
 if __name__ == "__main__":

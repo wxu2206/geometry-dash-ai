@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import asdict
 from pathlib import Path
 
 from geometry_dash_ai.config.settings import AppConfig, config_from_dict
+from geometry_dash_ai.safe_io import atomic_owner_write
 
 
 def save_local_config(project_root: Path, config: AppConfig) -> Path:
@@ -21,21 +21,7 @@ def save_local_config(project_root: Path, config: AppConfig) -> Path:
         raise ValueError("refusing to write local configuration through a symlink")
     validated = config_from_dict(asdict(config))
     payload = _toml(validated).encode("utf-8")
-    descriptor = os.open(
-        destination,
-        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-        0o600,
-    )
-    try:
-        remaining = memoryview(payload)
-        while remaining:
-            written = os.write(descriptor, remaining)
-            if written <= 0:
-                raise OSError("local configuration write did not complete")
-            remaining = remaining[written:]
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    atomic_owner_write(destination, payload)
     return destination
 
 

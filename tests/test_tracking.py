@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from math import isfinite
 
 from geometry_dash_ai.tracking import GeometryFuser, PlayerTracker, ScrollEstimator
 from geometry_dash_ai.vision import GeometryDetection, PlayerDetection, PlayerMode, ScreenBox
@@ -116,3 +117,44 @@ class TrackingTests(unittest.TestCase):
         estimate = estimator.update(second, 1_100_000_000)
         self.assertAlmostEqual(estimate.scene_dx, -10.0)
         self.assertLess(estimate.speed_px_s, 0.0)
+
+    def test_scroll_ignores_new_edge_anchor_instead_of_matching_by_list_position(self) -> None:
+        estimator = ScrollEstimator(maximum_displacement_px=32.0)
+        first = GeometryDetection(
+            solids=(ScreenBox(100, 80, 20, 20), ScreenBox(220, 80, 20, 20)),
+            confidence=1.0,
+        )
+        # A new object entering at the left changes detector ordering. The two
+        # existing solids still moved left by two pixels.
+        second = GeometryDetection(
+            solids=(
+                ScreenBox(20, 80, 20, 20),
+                ScreenBox(98, 80, 20, 20),
+                ScreenBox(218, 80, 20, 20),
+            ),
+            confidence=1.0,
+        )
+        estimator.update(first, 1_000_000_000)
+        estimate = estimator.update(second, 1_016_666_667)
+        self.assertAlmostEqual(estimate.scene_dx, -2.0)
+        self.assertLess(estimate.speed_px_s, 0.0)
+
+    def test_geometry_fusion_and_scroll_stay_bounded_during_long_smooth_scroll(self) -> None:
+        fuser = GeometryFuser(12)
+        estimator = ScrollEstimator(maximum_displacement_px=16.0)
+        estimate = None
+        for frame_index in range(1_000):
+            offset = float(-2 * frame_index)
+            geometry = GeometryDetection(
+                floors=(ScreenBox(offset, 140, 180, 2),),
+                solids=(ScreenBox(220 + offset, 92, 32, 48),),
+                confidence=0.8,
+            )
+            fused = fuser.update(geometry)
+            estimate = estimator.update(fused, 1_000_000_000 + frame_index * 16_666_667)
+            self.assertLessEqual(fuser.cached_observations, 12)
+            self.assertLessEqual(len(fused.floors) + len(fused.solids), 2)
+            self.assertTrue(isfinite(estimate.scene_dx))
+            self.assertTrue(isfinite(estimate.speed_px_s))
+        assert estimate is not None
+        self.assertAlmostEqual(estimate.scene_dx, -2.0, delta=0.1)

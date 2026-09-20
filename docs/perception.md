@@ -33,9 +33,11 @@ planner coordinate boundary; tests cover the scaled-coordinate path.
 
 `ClassicalGeometryDetector` intentionally detects only useful, high-contrast
 objects: bright horizontal floor/ceiling runs, bright rectangular solids, and
-red triangular-hazard candidates. Decorations, portals, effects, custom player
-colors, and unusual themes are not yet reliable. The detector's output remains
-screen-space and carries its own confidence.
+red triangular-hazard candidates. A connected two- or three-spike cluster is
+split only when its aspect, fill, and floor support match plausible adjacent
+triangles; unsupported red decoration remains rejected. Decorations, portals,
+effects, custom player colors, and unusual themes are not yet reliable. The
+detector's output remains screen-space and carries its own confidence.
 
 ## Tracking and Fusion
 
@@ -44,9 +46,11 @@ rejects non-increasing timestamps and detections that require an impossible spee
 then predicts briefly through misses with confidence decay. It records age/lost
 frames and smooths cube/ship mode votes. This prevents a distant colour-matched
 particle or UI component from becoming an abrupt planner position. `ScrollEstimator` tracks geometry
-anchors rather than player movement. `GeometryFuser` retains a bounded history
-and blends overlapping boxes to reduce one-frame jitter; it never reconstructs
-an unbounded map.
+anchors rather than player movement and pairs only bounded, compatible,
+nearest same-kind anchors, so newly entering edge geometry cannot be mistaken
+for a huge scroll jump. `GeometryFuser` retains a bounded history and blends
+overlapping boxes to reduce one-frame jitter; it never reconstructs an
+unbounded map.
 
 `PerceptionSnapshot.perception_unreliable` is true for missing/aged player
 tracking or low player/geometry confidence. Downstream planners must treat it

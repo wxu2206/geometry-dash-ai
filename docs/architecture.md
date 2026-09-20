@@ -63,8 +63,10 @@ flowchart TD
   participating in action selection. Explicit shadow logs are constrained below
   `data/runs`, reject symlinks, and contain no frame payload.
 - `ui`: renders calibration and debug overlays from snapshots of other modules.
-- `simulation`: supplies deterministic synthetic observations and known physics
-  for development and CI; it is not a representation of Stereo Madness data.
+- `simulation`: supplies deterministic synthetic observations, known physics,
+  and a mechanics-focused scenario catalog (floor, spikes, gaps, platforms,
+  ship corridors, and mode portals) for development and CI; it is not a
+  representation of Stereo Madness data.
 - `config`: loads validated TOML and provides immutable settings.
 
 ## Shared Runtime Models
