@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import threading
 import unittest
@@ -19,6 +20,74 @@ from geometry_dash_ai.vision.pipeline import PerceptionSnapshot
 
 
 class LocalWebUiTests(unittest.TestCase):
+    def test_http_origin_checks_protect_the_token_page_and_actions(self) -> None:
+        with TemporaryDirectory() as directory:
+            application = self._application(Path(directory))
+            application.start_server()
+            server = application._server
+            assert server is not None
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            port = server.server_port
+            authority = f"{LOOPBACK_HOST}:{port}"
+
+            def request(
+                method: str, path: str, headers: dict[str, str], body: str | None = None
+            ) -> tuple[int, bytes]:
+                connection = http.client.HTTPConnection(LOOPBACK_HOST, port, timeout=3)
+                try:
+                    connection.request(method, path, body=body, headers=headers)
+                    response = connection.getresponse()
+                    return response.status, response.read()
+                finally:
+                    connection.close()
+
+            try:
+                for host in [
+                    "audit.invalid", f"audit.invalid:{port}", "localhost", authority + "."
+                ]:
+                    status, body = request("GET", "/", {"Host": host})
+                    self.assertEqual(status, 403)
+                    self.assertNotIn(application._token.encode(), body)
+                for headers in [
+                    {"Host": authority, "Origin": "http://audit.invalid"},
+                    {"Host": authority, "Origin": "null"},
+                    {"Host": authority, "Sec-Fetch-Site": "cross-site"},
+                    {"Host": authority, "Sec-Fetch-Site": "same-site"},
+                ]:
+                    self.assertEqual(request("GET", "/", headers)[0], 403)
+                self.assertEqual(request("GET", "/", {"Host": authority})[0], 200)
+                self.assertEqual(request("GET", "/", {"Host": f"localhost:{port}"})[0], 200)
+                self.assertEqual(request("GET", "/api/status", {"Host": authority})[0], 404)
+                with patch.object(application, "dispatch", return_value={"ok": True}) as dispatch:
+                    payload = json.dumps({"action": "fixture", "payload": {}})
+                    headers = {
+                        "Host": authority,
+                        "X-GDAI-Token": application._token,
+                        "Content-Type": "application/json",
+                        "Origin": "http://audit.invalid",
+                    }
+                    self.assertEqual(request("POST", "/api/action", headers, payload)[0], 403)
+                    dispatch.assert_not_called()
+                    headers["Origin"] = f"http://{authority}"
+                    self.assertEqual(request("POST", "/api/action", headers, payload)[0], 200)
+                    dispatch.assert_called_once_with("fixture", {})
+                connection = http.client.HTTPConnection(LOOPBACK_HOST, port, timeout=3)
+                try:
+                    connection.putrequest("GET", "/", skip_host=True)
+                    connection.putheader("Host", authority)
+                    connection.putheader("Host", "audit.invalid")
+                    connection.endheaders()
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 403)
+                    response.read()
+                finally:
+                    connection.close()
+            finally:
+                server.shutdown()
+                thread.join(timeout=3)
+                application.close()
+
     def _application(
         self, root: Path, config: AppConfig | None = None
     ) -> AlphaLocalWebApplication:
